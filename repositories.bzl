@@ -89,6 +89,15 @@ def jazzer_dependencies():
 
     maybe(
         http_archive,
+        name = "com_github_jhalterman_typetools",
+        build_file = "@jazzer//third_party:typetools.BUILD",
+        sha256 = "754f46de7d4c278cee2d4dba3c09ebe08fde03d0e67fc85d700611d9cdfb7868",
+        strip_prefix = "typetools-887153d2a9adf032fac9f145594d0a0248618d48",
+        url = "https://github.com/jhalterman/typetools/archive/887153d2a9adf032fac9f145594d0a0248618d48.tar.gz",
+    )
+
+    maybe(
+        http_archive,
         build_file = "@jazzer//third_party:classgraph.BUILD",
         name = "com_github_classgraph_classgraph",
         sha256 = "2b7c3930f007e4acca8a50a26957b09a55b2fabd23ed00715516a114ae3f1c1e",
