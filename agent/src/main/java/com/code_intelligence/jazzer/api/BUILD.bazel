@@ -7,6 +7,7 @@ java_library(
     srcs = glob(["*.java"]),
     visibility = ["//visibility:public"],
     deps = [
+        "@com_github_classgraph_classgraph//:classgraph",
         "@com_github_jhalterman_typetools//:typetools",
     ],
 )

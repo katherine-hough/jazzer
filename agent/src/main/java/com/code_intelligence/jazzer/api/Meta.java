@@ -1,15 +1,13 @@
 package com.code_intelligence.jazzer.api;
 
 import java.io.ByteArrayInputStream;
-import java.io.InputStream;
+import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Executable;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Collectors;
 import net.jodah.typetools.TypeResolver;
 import net.jodah.typetools.TypeResolver.Unknown;
 
@@ -31,20 +29,34 @@ public class Meta {
       return data.consumeBoolean();
     } else if (type == char.class || type == Character.class) {
       return data.consumeChar();
-    } else if (type == CharSequence.class || type == String.class) {
+    } else if (type.isAssignableFrom(String.class)) {
       return data.consumeString(data.remainingBytes() / 2);
-    } else if (type == byte[].class || type == Byte[].class) {
-      return data.consumeBytes(data.remainingBytes() / 2);
-    } else if (type == InputStream.class || type == ByteArrayInputStream.class) {
+    } else if (type.isArray()) {
+      if (type == byte[].class) {
+        return data.consumeBytes(data.remainingBytes() / 2);
+      } else if (type == int[].class) {
+        return data.consumeInts(data.remainingBytes() / 2);
+      } else if (type == short[].class) {
+        return data.consumeShorts(data.remainingBytes() / 2);
+      } else if (type == long[].class) {
+        return data.consumeLongs(data.remainingBytes() / 2);
+      } else if (type == boolean[].class) {
+        return data.consumeBooleans(data.remainingBytes() / 2);
+      } else {
+        Object array = Array.newInstance(type.getComponentType(), data.remainingBytes() / 2);
+        for (int i = 0; i < Array.getLength(array); i++) {
+          Array.set(array, i, consume(data, type.getComponentType()));
+        }
+        return array;
+      }
+    } else if (type.isAssignableFrom(ByteArrayInputStream.class)) {
       return new ByteArrayInputStream(data.consumeBytes(data.remainingBytes() / 2));
     } else if (type.isEnum()) {
       return data.pickValue(type.getEnumConstants());
-    } else if (!type.isInterface() && !Modifier.isAbstract(type.getModifiers())) {
-      Constructor<?> chosenConstructor = data.pickValue(type.getConstructors());
-      Class<?>[] argumentTypes = chosenConstructor.getParameterTypes();
-      List<?> arguments = Arrays.stream(chosenConstructor.getParameterTypes())
-          .map((argumentType) -> consume(data, argumentType))
-          .collect(Collectors.toList());
+    } else if (Modifier.isAbstract(type.getModifiers())) {
+    } else if (type.isInterface()) {
+    } else if (type.getConstructors().length > 0) {
+      return autofuzz(data, data.pickValue(type.getConstructors()));
     }
     return null;
   }
