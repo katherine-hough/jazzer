@@ -3,9 +3,9 @@ name: Check formatting
 # Controls when the action will run.
 on:
   push:
-    branches: [ main ]
+    branches: [ main, autofuzz ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, autofuzz ]
 
   workflow_dispatch:
 
