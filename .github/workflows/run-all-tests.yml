@@ -2,9 +2,9 @@ name: Build all targets and run all tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, autofuzz ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, autofuzz ]
 
   workflow_dispatch:
 
