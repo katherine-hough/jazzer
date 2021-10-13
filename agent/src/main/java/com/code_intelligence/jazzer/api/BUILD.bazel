@@ -6,19 +6,11 @@ java_library(
     name = "api",
     srcs = glob(["*.java"]),
     visibility = ["//visibility:public"],
-    deps = [
-        "@com_github_classgraph_classgraph//:classgraph",
-        "@com_github_jhalterman_typetools//:typetools",
-    ],
 )
 
 javadoc_library(
     name = "api_javadoc",
     srcs = glob(["*.java"]),
-    deps = [
-        "@com_github_classgraph_classgraph//:classgraph",
-        "@com_github_jhalterman_typetools//:typetools",
-    ],
 )
 
 java_export(
@@ -27,8 +19,4 @@ java_export(
     maven_coordinates = JAZZER_API_COORDINATES,
     pom_template = "//:jazzer-api.pom",
     visibility = ["//visibility:public"],
-    deps = [
-        "@com_github_classgraph_classgraph//:classgraph",
-        "@com_github_jhalterman_typetools//:typetools",
-    ],
 )
