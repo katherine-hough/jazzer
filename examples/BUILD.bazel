@@ -6,10 +6,8 @@ java_fuzz_target_test(
     name = "Autofuzz",
     fuzzer_args = [
         "--autofuzz=com.google.json.JsonSanitizer::sanitize",
-        # Exit after the third finding for testing purposes. The first two are somewhat expected
-        # ArrayIndexOutOfBoundsExceptions resulting from too deeply nested JSON objects. The third
-        # finding is a valid crash.
-        "--keep_going=3",
+        # Exit after the first finding for testing purposes.
+        "--keep_going=1",
     ],
     runtime_deps = [
         "@maven//:com_mikesamuel_json_sanitizer",
