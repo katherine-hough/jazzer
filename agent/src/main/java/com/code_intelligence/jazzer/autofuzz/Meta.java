@@ -15,6 +15,8 @@
 package com.code_intelligence.jazzer.autofuzz;
 
 import com.code_intelligence.jazzer.api.FuzzedDataProvider;
+import io.github.classgraph.ClassGraph;
+import io.github.classgraph.ScanResult;
 import java.io.ByteArrayInputStream;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
@@ -23,10 +25,14 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.List;
+import java.util.WeakHashMap;
 import net.jodah.typetools.TypeResolver;
 import net.jodah.typetools.TypeResolver.Unknown;
 
 public class Meta {
+  static WeakHashMap<Class<?>, List<Class<?>>> cache = new WeakHashMap<>();
+
   public static Object consume(FuzzedDataProvider data, Class<?> type) {
     if (type == byte.class || type == Byte.class) {
       return data.consumeByte();
@@ -69,7 +75,17 @@ public class Meta {
     } else if (type.isEnum()) {
       return data.pickValue(type.getEnumConstants());
     } else if (Modifier.isAbstract(type.getModifiers())) {
-    } else if (type.isInterface()) {
+      if (!cache.containsKey(type)) {
+        ScanResult result = new ClassGraph().enableAllInfo().scan();
+        List<Class<?>> implementingClasses =
+            result.getClassesImplementing(type)
+                .getStandardClasses()
+                .filter(cls -> !Modifier.isAbstract(cls.getModifiers()))
+                .loadClasses();
+        cache.put(type, implementingClasses);
+      }
+
+      return consume(data, data.pickValue(cache.get(type)));
     } else if (type.getConstructors().length > 0) {
       return autofuzz(data, data.pickValue(type.getConstructors()));
     }
