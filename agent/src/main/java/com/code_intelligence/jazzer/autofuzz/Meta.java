@@ -16,6 +16,7 @@ package com.code_intelligence.jazzer.autofuzz;
 
 import com.code_intelligence.jazzer.api.FuzzedDataProvider;
 import io.github.classgraph.ClassGraph;
+import io.github.classgraph.ClassInfoList;
 import io.github.classgraph.ScanResult;
 import java.io.ByteArrayInputStream;
 import java.lang.reflect.Array;
@@ -77,9 +78,10 @@ public class Meta {
     } else if (Modifier.isAbstract(type.getModifiers())) {
       if (!cache.containsKey(type)) {
         ScanResult result = new ClassGraph().enableAllInfo().scan();
+        ClassInfoList children =
+            type.isInterface() ? result.getClassesImplementing(type) : result.getSubclasses(type);
         List<Class<?>> implementingClasses =
-            result.getClassesImplementing(type)
-                .getStandardClasses()
+            children.getStandardClasses()
                 .filter(cls -> !Modifier.isAbstract(cls.getModifiers()))
                 .loadClasses();
         cache.put(type, implementingClasses);
