@@ -69,16 +69,19 @@ public class Meta {
     }
   }
 
+  @SuppressWarnings("unchecked")
   public static <T1> void autofuzz(FuzzedDataProvider data, Consumer1<T1> func) {
     Class<?>[] types = TypeResolver.resolveRawArguments(Consumer1.class, func.getClass());
     func.accept((T1) consumeChecked(data, types, 0));
   }
 
+  @SuppressWarnings("unchecked")
   public static <T1, R> R autofuzz(FuzzedDataProvider data, Function1<T1, R> func) {
     Class<?>[] types = TypeResolver.resolveRawArguments(Function1.class, func.getClass());
     return func.apply((T1) consumeChecked(data, types, 0));
   }
 
+  @SuppressWarnings("unchecked")
   public static <T1, T2, R> R autofuzz(FuzzedDataProvider data, Function2<T1, T2, R> func) {
     Class<?>[] types = TypeResolver.resolveRawArguments(Function2.class, func.getClass());
     return func.apply((T1) consumeChecked(data, types, 0), (T2) consumeChecked(data, types, 1));
