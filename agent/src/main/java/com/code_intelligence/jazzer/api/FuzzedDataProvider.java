@@ -286,6 +286,7 @@ public interface FuzzedDataProvider {
    * @param <T> the type of a collection element
    * @return an element from {@code collection} chosen based on the fuzzer input
    */
+  @SuppressWarnings("unchecked")
   default<T> T pickValue(Collection<T> collection) {
     int size = collection.size();
     if (size == 0) {
