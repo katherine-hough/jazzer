@@ -25,9 +25,11 @@ import java.lang.reflect.Executable;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.WeakHashMap;
+import java.util.stream.Collectors;
 import net.jodah.typetools.TypeResolver;
 import net.jodah.typetools.TypeResolver.Unknown;
 
@@ -138,8 +140,46 @@ public class Meta {
       return consume(data, data.pickValue(cache.get(type)));
     } else if (type.getConstructors().length > 0) {
       return autofuzz(data, data.pickValue(type.getConstructors()));
+    } else if (getNestedBuilderClasses(type).size() > 0) {
+      List<Class<?>> nestedBuilderClasses = getNestedBuilderClasses(type);
+      Class<?> pickedBuilder = data.pickValue(nestedBuilderClasses);
+
+      List<Method> cascadingBuilderMethods = Arrays.stream(pickedBuilder.getMethods())
+                                         .filter(m -> m.getReturnType() == pickedBuilder)
+                                         .collect(Collectors.toList());
+
+      List<Method> originalObjectCreationMethods = Arrays.stream(pickedBuilder.getMethods())
+                                                       .filter(m -> m.getReturnType() == type)
+                                                       .collect(Collectors.toList());
+
+      int pickedMethodsNumber = data.consumeInt(0, cascadingBuilderMethods.size());
+      List<Method> pickedMethods = new ArrayList<>();
+      for (int i = 0; i < pickedMethodsNumber; i++) {
+        Method method = data.pickValue(cascadingBuilderMethods);
+        pickedMethods.add(method);
+        cascadingBuilderMethods.remove(method);
+      }
+
+      Method builderMethod = data.pickValue(originalObjectCreationMethods);
+
+      Object obj = autofuzz(data, data.pickValue(pickedBuilder.getConstructors()));
+      for (Method method : pickedMethods) {
+        obj = autofuzz(data, method, obj);
+      }
+
+      try {
+        return builderMethod.invoke(obj);
+      } catch (Exception e) {
+        throw new AutofuzzConstructionException(e);
+      }
     }
     return null;
+  }
+
+  private static List<Class<?>> getNestedBuilderClasses(Class<?> type) {
+    return Arrays.stream(type.getClasses())
+        .filter(cls -> cls.getName().endsWith("Builder"))
+        .collect(Collectors.toList());
   }
 
   private static Object[] consumeArguments(FuzzedDataProvider data, Executable executable) {
