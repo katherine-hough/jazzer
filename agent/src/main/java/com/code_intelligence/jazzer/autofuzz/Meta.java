@@ -148,8 +148,8 @@ public class Meta {
       Class<?> pickedBuilder = data.pickValue(nestedBuilderClasses);
 
       List<Method> cascadingBuilderMethods = Arrays.stream(pickedBuilder.getMethods())
-                                         .filter(m -> m.getReturnType() == pickedBuilder)
-                                         .collect(Collectors.toList());
+                                                 .filter(m -> m.getReturnType() == pickedBuilder)
+                                                 .collect(Collectors.toList());
 
       List<Method> originalObjectCreationMethods = Arrays.stream(pickedBuilder.getMethods())
                                                        .filter(m -> m.getReturnType() == type)
