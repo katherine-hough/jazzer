@@ -141,7 +141,7 @@ public class FuzzTarget {
       Class<?> causeClass = cause.getClass();
       // Do not report exceptions declared to be thrown by the method under test.
       for (Class<?> declaredThrow : throwsDeclarations.get(targetMethod)) {
-        if (causeClass == declaredThrow) {
+        if (declaredThrow.isAssignableFrom(causeClass)) {
           return;
         }
       }
