@@ -414,6 +414,9 @@ public interface FuzzedDataProvider {
     if (size == 0) {
       throw new IllegalArgumentException("collection is empty");
     }
+    if (numOfElements > collection.size()) {
+      throw new IllegalArgumentException("numOfElements exceeds collection.size()");
+    }
 
     List<T> remainingElements = new ArrayList<>(collection);
     List<T> pickedElements = new ArrayList<>();
