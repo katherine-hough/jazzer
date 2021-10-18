@@ -15,6 +15,7 @@
 package com.code_intelligence.jazzer.autofuzz;
 
 import com.code_intelligence.jazzer.api.FuzzedDataProvider;
+import com.code_intelligence.jazzer.utils.Utils;
 import io.github.classgraph.ClassGraph;
 import io.github.classgraph.ClassInfoList;
 import io.github.classgraph.ScanResult;
@@ -149,8 +150,12 @@ public class Meta {
         }
       }
       if (implementingClasses.isEmpty()) {
-        throw new AutofuzzConstructionException(String.format(
-            "Could not find classes implementing %s on the classpath", type.getName()));
+        if (isDebug()) {
+          throw new AutofuzzConstructionException(String.format(
+              "Could not find classes implementing %s on the classpath", type.getName()));
+        } else {
+          throw new AutofuzzConstructionException();
+        }
       }
       return consume(data, data.pickValue(implementingClasses));
     } else if (type.getConstructors().length > 0) {
@@ -166,10 +171,11 @@ public class Meta {
       }
       return obj;
     }
-    // We are out of more or less canonical ways to construct an instance of this class and have to resort to more
-    // heuristic approaches.
+    // We are out of more or less canonical ways to construct an instance of this class and have to
+    // resort to more heuristic approaches.
 
-    // First, try to find nested classes with names ending in Builder and call a subset of their chaining methods.
+    // First, try to find nested classes with names ending in Builder and call a subset of their
+    // chaining methods.
     List<Class<?>> nestedBuilderClasses = getNestedBuilderClasses(type);
     if (!nestedBuilderClasses.isEmpty()) {
       Class<?> pickedBuilder = data.pickValue(nestedBuilderClasses);
@@ -195,24 +201,36 @@ public class Meta {
       } catch (Exception e) {
         throw new AutofuzzConstructionException(e);
       }
-    } else {
-      Constructor<?>[] c = type.getDeclaredConstructors();
-      System.err.printf("ctor: %s\n", c[0].toGenericString());
-      System.err.printf("    public %b\n", Modifier.isPublic(c[0].getModifiers()));
-      System.err.printf("    private %b\n", Modifier.isPrivate(c[0].getModifiers()));
-      System.err.printf("    protected %b\n", Modifier.isProtected(c[0].getModifiers()));
-      //      System.err.printf("    protected %b\n", Modifier.i(c[0].getModifiers()));
     }
-    return null;
+
+    // We ran out of ways to construct an instance of the requested type. If in debug mode, report
+    // more detailed information.
+    if (!isDebug()) {
+      return new AutofuzzConstructionException();
+    } else {
+      String summary = String.format(
+          "Failed to generate instance of %s:%nAccessible constructors: %s%nNested subclasses: %s%n",
+          type.getName(),
+          Arrays.stream(type.getConstructors())
+              .map(Utils::getReadableDescriptor)
+              .collect(Collectors.joining(", ")),
+          Arrays.stream(type.getClasses()).map(Class::getName).collect(Collectors.joining(", ")));
+      return new AutofuzzConstructionException(summary);
+    }
+  }
+
+  static boolean isDebug() {
+    String value = System.getenv("JAZZER_AUTOFUZZ_DEBUG");
+    return value != null && !value.isEmpty();
   }
 
   private static List<Class<?>> getNestedBuilderClasses(Class<?> type) {
     List<Class<?>> nestedBuilderClasses = nestedBuilderClassesCache.get(type);
     if (nestedBuilderClasses == null) {
       nestedBuilderClasses = Arrays.stream(type.getClasses())
-              .filter(cls -> cls.getName().endsWith("Builder"))
-              .filter(cls -> !getOriginalObjectCreationMethods(cls).isEmpty())
-              .collect(Collectors.toList());
+                                 .filter(cls -> cls.getName().endsWith("Builder"))
+                                 .filter(cls -> !getOriginalObjectCreationMethods(cls).isEmpty())
+                                 .collect(Collectors.toList());
       nestedBuilderClassesCache.put(type, nestedBuilderClasses);
     }
     return nestedBuilderClasses;
@@ -221,13 +239,13 @@ public class Meta {
   private static List<Method> getOriginalObjectCreationMethods(Class<?> builder) {
     List<Method> originalObjectCreationMethods = originalObjectCreationMethodsCache.get(builder);
     if (originalObjectCreationMethods == null) {
-      originalObjectCreationMethods = Arrays.stream(builder.getMethods())
+      originalObjectCreationMethods =
+          Arrays.stream(builder.getMethods())
               .filter(m -> m.getReturnType() == builder.getEnclosingClass())
               .collect(Collectors.toList());
       originalObjectCreationMethodsCache.put(builder, originalObjectCreationMethods);
     }
     return originalObjectCreationMethods;
-
   }
 
   private static List<Method> getPotentialSetters(Class<?> type) {

@@ -121,7 +121,10 @@ public class FuzzTarget {
     try {
       Meta.autofuzz(data, targetMethod);
       executionsSinceLastInvocation = 0;
-    } catch (AutofuzzConstructionException ignored) {
+    } catch (AutofuzzConstructionException e) {
+      if (Meta.isDebug()) {
+        e.printStackTrace();
+      }
       // Ignore exceptions thrown while constructing the parameters for the target method. We can
       // only guess how to generate valid parameters and any exceptions thrown while doing so
       // are most likely on us. However, if this happens too often, Autofuzz got stuck and we should
