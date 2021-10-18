@@ -21,7 +21,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class FuzzTarget {
-  private static final long MAX_EXECUTIONS_WITHOUT_INVOCATION = 1000;
+  private static final long MAX_EXECUTIONS_WITHOUT_INVOCATION = 100;
 
   private static String methodReference;
   private static Method[] targetMethods;
