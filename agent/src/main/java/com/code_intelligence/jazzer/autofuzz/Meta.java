@@ -134,20 +134,18 @@ public class Meta {
       return new ByteArrayInputStream(data.consumeBytes(data.remainingBytes() / 2));
     } else if (type.isEnum()) {
       return data.pickValue(type.getEnumConstants());
-    } else if (Modifier.isAbstract(type.getModifiers())) {
+    } else if (type.isInterface() || Modifier.isAbstract(type.getModifiers())) {
       List<Class<?>> implementingClasses = cache.get(type);
       if (implementingClasses == null) {
         try (ScanResult result =
                  new ClassGraph().enableClassInfo().enableInterClassDependencies().scan()) {
           ClassInfoList children =
               type.isInterface() ? result.getClassesImplementing(type) : result.getSubclasses(type);
-          implementingClasses = children.getStandardClasses()
-                                    .filter(cls -> !Modifier.isAbstract(cls.getModifiers()))
-                                    .loadClasses();
+          implementingClasses =
+              children.getStandardClasses().filter(cls -> !cls.isAbstract()).loadClasses();
           cache.put(type, implementingClasses);
         }
       }
-
       return consume(data, data.pickValue(implementingClasses));
     } else if (type.getConstructors().length > 0) {
       Constructor<?> constructor = data.pickValue(type.getConstructors());
