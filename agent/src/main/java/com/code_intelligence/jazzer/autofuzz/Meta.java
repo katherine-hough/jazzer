@@ -215,7 +215,7 @@ public class Meta {
     // We ran out of ways to construct an instance of the requested type. If in debug mode, report
     // more detailed information.
     if (!isDebug()) {
-      return new AutofuzzConstructionException();
+      throw new AutofuzzConstructionException();
     } else {
       String summary = String.format(
           "Failed to generate instance of %s:%nAccessible constructors: %s%nNested subclasses: %s%n",
@@ -224,7 +224,7 @@ public class Meta {
               .map(Utils::getReadableDescriptor)
               .collect(Collectors.joining(", ")),
           Arrays.stream(type.getClasses()).map(Class::getName).collect(Collectors.joining(", ")));
-      return new AutofuzzConstructionException(summary);
+      throw new AutofuzzConstructionException(summary);
     }
   }
 
