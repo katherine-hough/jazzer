@@ -55,7 +55,7 @@ public class Meta {
       return method.invoke(thisObject, arguments);
     } catch (IllegalAccessException | IllegalArgumentException | NullPointerException e) {
       // We should ensure that the arguments fed into the method are always valid.
-      throw new AutofuzzError(e);
+      throw new AutofuzzError(getDebugSummary(method, thisObject, arguments), e);
     } catch (InvocationTargetException e) {
       throw new AutofuzzInvocationException(e.getCause());
     }
@@ -68,7 +68,7 @@ public class Meta {
     } catch (InstantiationException | IllegalAccessException | IllegalArgumentException e) {
       // This should never be reached as the logic in consume should prevent us from e.g. calling
       // constructors of abstract classes or private constructors.
-      throw new AutofuzzError(e);
+      throw new AutofuzzError(getDebugSummary(constructor, null, arguments), e);
     } catch (InvocationTargetException e) {
       throw new AutofuzzInvocationException(e.getCause());
     }
@@ -226,6 +226,14 @@ public class Meta {
   static boolean isDebug() {
     String value = System.getenv("JAZZER_AUTOFUZZ_DEBUG");
     return value != null && !value.isEmpty();
+  }
+
+  private static String getDebugSummary(
+      Executable executable, Object thisObject, Object[] arguments) {
+    return String.format("%nMethod: %s::%s%s%nthis: %s%nArguments: %s",
+        executable.getDeclaringClass().getName(), executable.getName(),
+        Utils.getReadableDescriptor(executable), thisObject,
+        Arrays.stream(arguments).map(Object::toString).collect(Collectors.joining(", ")));
   }
 
   private static List<Class<?>> getNestedBuilderClasses(Class<?> type) {
