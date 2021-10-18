@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+set -e
 
 CP="$(/app/coursier.jar fetch --classpath "$1")"
 /app/jazzer_driver \
