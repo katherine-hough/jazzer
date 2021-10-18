@@ -129,13 +129,14 @@ public class Meta {
     } else if (Modifier.isAbstract(type.getModifiers())) {
       List<Class<?>> implementingClasses = cache.get(type);
       if (implementingClasses == null) {
-        ScanResult result = new ClassGraph().enableAllInfo().scan();
-        ClassInfoList children =
-            type.isInterface() ? result.getClassesImplementing(type) : result.getSubclasses(type);
-        implementingClasses = children.getStandardClasses()
-                .filter(cls -> !Modifier.isAbstract(cls.getModifiers()))
-                .loadClasses();
-        cache.put(type, implementingClasses);
+        try (ScanResult result = new ClassGraph().enableAllInfo().scan()) {
+          ClassInfoList children =
+                  type.isInterface() ? result.getClassesImplementing(type) : result.getSubclasses(type);
+          implementingClasses = children.getStandardClasses()
+                  .filter(cls -> !Modifier.isAbstract(cls.getModifiers()))
+                  .loadClasses();
+          cache.put(type, implementingClasses);
+        }
       }
 
       return consume(data, data.pickValue(implementingClasses));
