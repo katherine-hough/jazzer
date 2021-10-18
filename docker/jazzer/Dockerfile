@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y git python3 python-is-python3 openjdk-11-jdk-headless
 
 WORKDIR /root
-RUN git clone --depth=1 https://github.com/CodeIntelligenceTesting/jazzer.git && \
+RUN git clone --depth=1 -b autofuzz https://github.com/CodeIntelligenceTesting/jazzer.git && \
     cd jazzer && \
     # The LLVM toolchain requires ld and ld.gold to exist, but does not use them.
     touch /usr/bin/ld && \
