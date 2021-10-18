@@ -243,7 +243,9 @@ public class Meta {
     return String.format("%nMethod: %s::%s%s%nthis: %s%nArguments: %s",
         executable.getDeclaringClass().getName(), executable.getName(),
         Utils.getReadableDescriptor(executable), thisObject,
-        Arrays.stream(arguments).map(Object::toString).collect(Collectors.joining(", ")));
+        Arrays.stream(arguments)
+            .map(arg -> arg == null ? "null" : arg.toString())
+            .collect(Collectors.joining(", ")));
   }
 
   private static List<Class<?>> getNestedBuilderClasses(Class<?> type) {
