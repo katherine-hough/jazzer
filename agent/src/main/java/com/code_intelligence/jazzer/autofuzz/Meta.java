@@ -172,10 +172,12 @@ public class Meta {
       Object obj = autofuzz(data, constructor);
       if (constructor.getParameterCount() == 0) {
         List<Method> potentialSetters = getPotentialSetters(type);
-        List<Method> pickedSetters =
-            data.pickValues(potentialSetters, data.consumeInt(0, potentialSetters.size()));
-        for (Method setter : pickedSetters) {
-          autofuzz(data, setter, obj);
+        if (!potentialSetters.isEmpty()) {
+          List<Method> pickedSetters =
+              data.pickValues(potentialSetters, data.consumeInt(0, potentialSetters.size()));
+          for (Method setter : pickedSetters) {
+            autofuzz(data, setter, obj);
+          }
         }
       }
       return obj;
