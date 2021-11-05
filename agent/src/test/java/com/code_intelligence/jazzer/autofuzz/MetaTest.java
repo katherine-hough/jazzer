@@ -22,8 +22,10 @@ import com.code_intelligence.jazzer.api.CannedFuzzedDataProvider;
 import com.code_intelligence.jazzer.api.FuzzedDataProvider;
 import com.google.json.JsonSanitizer;
 import java.io.ByteArrayInputStream;
+import java.lang.reflect.Type;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Map;
 import org.junit.Test;
 
 public class MetaTest {
@@ -42,7 +44,7 @@ public class MetaTest {
   }
 
   @Test
-  public void testConsume() {
+  public void testConsume() throws NoSuchMethodException {
     consumeTestCase(5, "5", Collections.singletonList(5));
     consumeTestCase((short) 5, "(short) 5", Collections.singletonList((short) 5));
     consumeTestCase(5L, "5L", Collections.singletonList(5L));
@@ -121,6 +123,44 @@ public class MetaTest {
     consumeTestCase(YourAverageJavaClass.class,
         "com.code_intelligence.jazzer.autofuzz.YourAverageJavaClass.class",
         Collections.singletonList((byte) 1));
+
+    Type stringStringMapType =
+        MetaTest.class.getDeclaredMethod("returnsStringStringMap").getGenericReturnType();
+    Map<String, String> expectedMap =
+        java.util.stream.Stream
+            .of(new java.util.AbstractMap.SimpleEntry<>("key0", "value0"),
+                new java.util.AbstractMap.SimpleEntry<>("key1", "value1"),
+                new java.util.AbstractMap.SimpleEntry<>("key2", (java.lang.String) null))
+            .collect(java.util.HashMap::new,
+                (map, e) -> map.put(e.getKey(), e.getValue()), java.util.HashMap::putAll);
+    consumeTestCase(stringStringMapType, expectedMap,
+        "java.util.stream.Stream.of(new java.util.AbstractMap.SimpleEntry<>(\"key0\", \"value0\"), new java.util.AbstractMap.SimpleEntry<>(\"key1\", \"value1\"), new java.util.AbstractMap.SimpleEntry<>(\"key2\", (java.lang.String) null)).collect(java.util.HashMap::new, (map, e) -> map.put(e.getKey(), e.getValue()), java.util.HashMap::putAll)",
+        Arrays.asList((byte) 1, // do not return null for the map
+            32, // remaining bytes
+            (byte) 1, // do not return null for the string
+            31, // remaining bytes
+            "key0",
+            (byte) 1, // do not return null for the string
+            28, // remaining bytes
+            "value0",
+            28, // remaining bytes
+            28, // consumeArrayLength
+            (byte) 1, // do not return null for the string
+            27, // remaining bytes
+            "key1",
+            (byte) 1, // do not return null for the string
+            23, // remaining bytes
+            "value1",
+            (byte) 1, // do not return null for the string
+            27, // remaining bytes
+            "key2",
+            (byte) 0 // *do* return null for the string
+            ));
+  }
+
+  private Map<String, String> returnsStringStringMap() {
+    throw new IllegalStateException(
+        "Should not be called, only exists to construct its generic return type");
   }
 
   @Test
