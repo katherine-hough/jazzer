@@ -29,7 +29,7 @@
 
 DECLARE_string(cp);
 DECLARE_string(jvm_args);
-DECLARE_string(instrumentation_excludes);
+DECLARE_bool(hooks);
 
 DECLARE_string(target_class);
 DECLARE_string(target_args);
@@ -116,12 +116,12 @@ class FuzzedDataProviderTest : public ::testing::Test {
   // process, so we set up a single JVM instance for this test binary which gets
   // destroyed after all tests in this test suite have finished.
   static void SetUpTestCase() {
-    FLAGS_instrumentation_excludes = "**";
+    FLAGS_hooks = false;
     using ::bazel::tools::cpp::runfiles::Runfiles;
     Runfiles* runfiles = Runfiles::CreateForTest();
     FLAGS_cp = runfiles->Rlocation(FLAGS_cp);
 
-    jvm_ = std::make_unique<JVM>("test_executable");
+    jvm_ = std::make_unique<JVM>("test_executable", "1234");
   }
 
   static void TearDownTestCase() { jvm_.reset(nullptr); }
@@ -242,7 +242,7 @@ const uint8_t kInput[] = {
 };
 
 TEST_F(FuzzedDataProviderTest, FuzzTargetWithDataProvider) {
-  FLAGS_target_class = "test/FuzzTargetWithDataProvider";
+  FLAGS_target_class = "test.FuzzTargetWithDataProvider";
   FLAGS_target_args = "";
   FuzzTargetRunner fuzz_target_runner(*jvm_);
 

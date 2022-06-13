@@ -25,6 +25,7 @@
 
 #include "absl/strings/match.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/strip.h"
 #include "fuzz_target_runner.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
@@ -44,20 +45,10 @@ DECLARE_string(id_sync_file);
 // Defined in fuzz_target_runner.cpp
 DECLARE_string(coverage_report);
 
-// This symbol is defined by sanitizers if linked into Jazzer or in
-// sanitizer_symbols.cpp if no sanitizer is used.
-extern "C" void __sanitizer_set_death_callback(void (*)());
-
-// We apply a patch to libFuzzer to make it call this function instead of
-// __sanitizer_set_death_callback to pass us the death callback.
-extern "C" [[maybe_unused]] void __jazzer_set_death_callback(
-    void (*callback)()) {
-  jazzer::AbstractLibfuzzerDriver::libfuzzer_print_crashing_input_ = callback;
-  __sanitizer_set_death_callback(callback);
-}
+// Defined in fuzz_target_runner.cpp
+DECLARE_string(coverage_dump);
 
 namespace {
-char *additional_arg;
 std::vector<char *> modified_argv;
 
 std::string GetNewTempFilePath() {
@@ -90,9 +81,11 @@ AbstractLibfuzzerDriver::AbstractLibfuzzerDriver(
   google::InitGoogleLogging((*argv)[0]);
   rules_jni_init((*argv)[0]);
 
-  auto argv_start = *argv;
-  auto argv_end = *argv + *argc;
+  const auto argv_start = *argv;
+  const auto argv_end = *argv + *argc;
 
+  // Parse libFuzzer flags to determine Jazzer flag defaults before letting
+  // gflags parse the command line.
   if (std::find(argv_start, argv_end, "-use_value_profile=1"s) != argv_end) {
     FLAGS_fake_pcs = true;
   }
@@ -110,15 +103,27 @@ AbstractLibfuzzerDriver::AbstractLibfuzzerDriver(
   // libFuzzer forwards the command line (e.g. with -jobs or -minimize_crash).
   gflags::ParseCommandLineFlags(&our_argc, &our_argv, false);
 
-  if (std::any_of(argv_start, argv_end, [](const std::string_view &arg) {
+  // Perform modifications of the command line arguments passed to libFuzzer if
+  // necessary by modifying this copy, which will be made the regular argv at
+  // the end of this function.
+  modified_argv = std::vector<char *>(argv_start, argv_end);
+
+  bool spawns_subprocesses = false;
+  if (std::any_of(argv_start, argv_end, [](std::string_view arg) {
         return absl::StartsWith(arg, "-fork=") ||
                absl::StartsWith(arg, "-jobs=") ||
                absl::StartsWith(arg, "-merge=");
       })) {
+    spawns_subprocesses = true;
     if (!FLAGS_coverage_report.empty()) {
       LOG(WARNING) << "WARN: --coverage_report does not support parallel "
                       "fuzzing and has been disabled";
       FLAGS_coverage_report = "";
+    }
+    if (!FLAGS_coverage_dump.empty()) {
+      LOG(WARNING) << "WARN: --coverage_dump does not support parallel "
+                      "fuzzing and has been disabled";
+      FLAGS_coverage_dump = "";
     }
     if (FLAGS_id_sync_file.empty()) {
       // Create an empty temporary file used for coverage ID synchronization and
@@ -130,17 +135,8 @@ AbstractLibfuzzerDriver::AbstractLibfuzzerDriver(
           absl::StrFormat("--id_sync_file=%s", FLAGS_id_sync_file);
       // This argument can be accessed by libFuzzer at any (later) time and thus
       // cannot be safely freed by us.
-      additional_arg = strdup(new_arg.c_str());
-      modified_argv = std::vector<char *>(argv_start, argv_end);
-      modified_argv.push_back(additional_arg);
-      // Terminate modified_argv.
-      modified_argv.push_back(nullptr);
-      // Modify argv and argc for libFuzzer. modified_argv must not be changed
-      // after this point.
+      modified_argv.push_back(strdup(new_arg.c_str()));
       *argc += 1;
-      *argv = modified_argv.data();
-      argv_start = *argv;
-      argv_end = *argv + *argc;
     }
     // Creates the file, truncating it if it exists.
     std::ofstream touch_file(FLAGS_id_sync_file, std::ios_base::trunc);
@@ -155,11 +151,47 @@ AbstractLibfuzzerDriver::AbstractLibfuzzerDriver(
     std::atexit(cleanup_fn);
   }
 
-  initJvm(*argv_start);
+  std::string seed;
+  // Search for the last occurence of a "-seed" argument as that is the one that
+  // is used by libFuzzer.
+  auto seed_pos = std::find_if(
+      std::reverse_iterator(argv_end), std::reverse_iterator(argv_start),
+      [](std::string_view arg) { return absl::StartsWith(arg, "-seed="); });
+  if (seed_pos != std::reverse_iterator(argv_start)) {
+    // An explicit seed has been provided on the command-line, record its value
+    // so that it can be forwarded to the agent.
+    seed = absl::StripPrefix(*seed_pos, "-seed=");
+  } else {
+    // No explicit seed has been set. Since Jazzer hooks might still want to use
+    // a seed and we have to ensure that a fuzzing run can be reproduced by
+    // setting the seed printed by libFuzzer, we generate a seed for it here so
+    // that the two stay in sync.
+    unsigned int random_seed = std::random_device()();
+    seed = std::to_string(random_seed);
+    // Only add the -seed argument to the command line if not running in a mode
+    // that spawns subprocesses. These would inherit the same seed, which might
+    // make them less effective.
+    if (!spawns_subprocesses) {
+      std::string seed_arg = "-seed=" + seed;
+      // This argument can be accessed by libFuzzer at any (later) time and thus
+      // cannot be safely freed by us.
+      modified_argv.push_back(strdup(seed_arg.c_str()));
+      *argc += 1;
+    }
+  }
+
+  // Terminate modified_argv.
+  modified_argv.push_back(nullptr);
+  // Modify argv and argc for libFuzzer. modified_argv must not be changed
+  // after this point.
+  *argv = modified_argv.data();
+
+  initJvm(**argv, seed);
 }
 
-void AbstractLibfuzzerDriver::initJvm(const std::string &executable_path) {
-  jvm_ = std::make_unique<jazzer::JVM>(executable_path);
+void AbstractLibfuzzerDriver::initJvm(std::string_view executable_path,
+                                      std::string_view seed) {
+  jvm_ = std::make_unique<jazzer::JVM>(executable_path, seed);
 }
 
 LibfuzzerDriver::LibfuzzerDriver(int *argc, char ***argv)

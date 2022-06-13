@@ -14,7 +14,11 @@
 
 package com.code_intelligence.jazzer.runtime;
 
+import java.util.ArrayList;
+
 final public class JazzerInternal {
+  private static final ArrayList<Runnable> ON_FUZZ_TARGET_READY_CALLBACKS = new ArrayList<>();
+
   // Accessed from native code.
   private static Throwable lastFinding;
 
@@ -25,5 +29,15 @@ final public class JazzerInternal {
     // terminate the execution of the fuzz target. The finding will be reported as soon as the fuzz
     // target returns even if this Error is swallowed.
     throw new HardToCatchError();
+  }
+
+  public static void registerOnFuzzTargetReadyCallback(Runnable callback) {
+    ON_FUZZ_TARGET_READY_CALLBACKS.add(callback);
+  }
+
+  // Accessed from native code.
+  public static void onFuzzTargetReady(String fuzzTargetClass) {
+    ON_FUZZ_TARGET_READY_CALLBACKS.forEach(Runnable::run);
+    ON_FUZZ_TARGET_READY_CALLBACKS.clear();
   }
 }

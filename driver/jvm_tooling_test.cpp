@@ -55,7 +55,7 @@ class JvmToolingTest : public ::testing::Test {
     Runfiles *runfiles = Runfiles::CreateForTest();
     FLAGS_cp = runfiles->Rlocation(FLAGS_cp);
 
-    jvm_ = std::make_unique<JVM>("test_executable");
+    jvm_ = std::make_unique<JVM>("test_executable", "1234");
   }
 
   static void TearDownTestCase() { jvm_.reset(nullptr); }
@@ -106,7 +106,7 @@ TEST_F(JvmToolingTest, JniProperties) {
 TEST_F(JvmToolingTest, SimpleFuzzTarget) {
   // see testdata/test/SimpleFuzzTarget.java for the implementation of the fuzz
   // target
-  FLAGS_target_class = "test/SimpleFuzzTarget";
+  FLAGS_target_class = "test.SimpleFuzzTarget";
   FLAGS_target_args = "";
   FuzzTargetRunner fuzz_target_runner(*jvm_);
 
@@ -150,7 +150,7 @@ TEST_F(JvmToolingTest, FuzzTargetWithInit) {
   // see testdata/test/FuzzTargetWithInit.java for the implementation of the
   // fuzz target. All string arguments provided in fuzzerInitialize(String[])
   // will cause a crash if input in fuzzerTestOneInput(byte[]).
-  FLAGS_target_class = "test/FuzzTargetWithInit";
+  FLAGS_target_class = "test.FuzzTargetWithInit";
   FLAGS_target_args = "crash_now crash_harder";
   FuzzTargetRunner fuzz_target_runner(*jvm_);
 
@@ -175,25 +175,20 @@ TEST_F(JvmToolingTest, FuzzTargetWithInit) {
 }
 
 TEST_F(JvmToolingTest, TestCoverageMap) {
-  CoverageTracker::Clear();
-  // check that after the initial clear the first coverage counter is 0
   auto coverage_counters_array = CoverageTracker::GetCoverageCounters();
   ASSERT_EQ(0, coverage_counters_array[0]);
 
-  FLAGS_target_class = "test/FuzzTargetWithCoverage";
+  FLAGS_target_class = "test.FuzzTargetWithCoverage";
   FLAGS_target_args = "";
   FuzzTargetRunner fuzz_target_runner(*jvm_);
   // run a fuzz target input which will cause the first coverage counter to
   // increase
   fuzz_target_runner.Run(nullptr, 0);
   ASSERT_EQ(1, coverage_counters_array[0]);
-  CoverageTracker::Clear();
-  // back to initial state
-  ASSERT_EQ(0, coverage_counters_array[0]);
 
-  // calling the fuzz target twice
+  // calling the fuzz target twice more
   fuzz_target_runner.Run(nullptr, 0);
   fuzz_target_runner.Run(nullptr, 0);
-  ASSERT_EQ(2, coverage_counters_array[0]);
+  ASSERT_EQ(3, coverage_counters_array[0]);
 }
 }  // namespace jazzer

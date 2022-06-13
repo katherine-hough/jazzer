@@ -17,19 +17,25 @@
 package com.code_intelligence.jazzer.agent
 
 import com.code_intelligence.jazzer.instrumentor.CoverageRecorder
+import com.code_intelligence.jazzer.instrumentor.Hooks
 import com.code_intelligence.jazzer.instrumentor.InstrumentationType
-import com.code_intelligence.jazzer.instrumentor.loadHooks
 import com.code_intelligence.jazzer.runtime.ManifestUtils
+import com.code_intelligence.jazzer.runtime.NativeLibHooks
+import com.code_intelligence.jazzer.runtime.SignalHandler
+import com.code_intelligence.jazzer.runtime.TraceCmpHooks
+import com.code_intelligence.jazzer.runtime.TraceDivHooks
+import com.code_intelligence.jazzer.runtime.TraceIndirHooks
 import com.code_intelligence.jazzer.utils.ClassNameGlobber
 import java.io.File
 import java.lang.instrument.Instrumentation
+import java.net.URI
 import java.nio.file.Paths
 import java.util.jar.JarFile
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 
-val KNOWN_ARGUMENTS = listOf(
+private val KNOWN_ARGUMENTS = listOf(
     "instrumentation_includes",
     "instrumentation_excludes",
     "custom_hook_includes",
@@ -40,12 +46,29 @@ val KNOWN_ARGUMENTS = listOf(
     "dump_classes_dir",
 )
 
-private object AgentJarFinder {
-    private val agentJarPath = AgentJarFinder::class.java.protectionDomain?.codeSource?.location?.toURI()
-    val agentJarFile = agentJarPath?.let { JarFile(File(it)) }
+// To be accessible by the agent classes the native library has to be loaded by the same class loader.
+// premain is executed in the context of the system class loader. At the beginning of premain the agent jar is added to
+// the bootstrap class loader and all subsequently required agent classes are loaded by it. Hence, it's not possible to
+// load the native library directly in premain by the system class loader, instead it's delegated to NativeLibraryLoader
+// loaded by the bootstrap class loader.
+internal object NativeLibraryLoader {
+    fun load() {
+        // Calls JNI_OnLoad_jazzer_initialize in the driver, which ensures that dynamically
+        // linked JNI methods are resolved against it.
+        System.loadLibrary("jazzer_initialize")
+    }
 }
 
-private val argumentDelimiter = if (System.getProperty("os.name").startsWith("Windows")) ";" else ":"
+private object AgentJarFinder {
+    val agentJarFile = jarUriForClass(AgentJarFinder::class.java)?.let { JarFile(File(it)) }
+}
+
+fun jarUriForClass(clazz: Class<*>): URI? {
+    return clazz.protectionDomain?.codeSource?.location?.toURI()
+}
+
+private val argumentDelimiter =
+    if (System.getProperty("os.name").startsWith("Windows")) ";" else ":"
 
 @OptIn(ExperimentalPathApi::class)
 fun premain(agentArgs: String?, instrumentation: Instrumentation) {
@@ -57,6 +80,8 @@ fun premain(agentArgs: String?, instrumentation: Instrumentation) {
     } else {
         println("WARN: Failed to add agent JAR to bootstrap class loader search path")
     }
+    NativeLibraryLoader.load()
+
     val argumentMap = (agentArgs ?: "")
         .split(',')
         .mapNotNull {
@@ -74,16 +99,17 @@ fun premain(agentArgs: String?, instrumentation: Instrumentation) {
                 else -> splitArg[0] to splitArg[1].split(argumentDelimiter)
             }
         }.toMap()
-    val manifestCustomHookNames = ManifestUtils.combineManifestValues(ManifestUtils.HOOK_CLASSES).flatMap {
-        it.split(':')
-    }
+    val manifestCustomHookNames =
+        ManifestUtils.combineManifestValues(ManifestUtils.HOOK_CLASSES).flatMap {
+            it.split(':')
+        }.filter { it.isNotBlank() }
     val customHookNames = manifestCustomHookNames + (argumentMap["custom_hooks"] ?: emptyList())
     val classNameGlobber = ClassNameGlobber(
         argumentMap["instrumentation_includes"] ?: emptyList(),
         (argumentMap["instrumentation_excludes"] ?: emptyList()) + customHookNames
     )
     CoverageRecorder.classNameGlobber = classNameGlobber
-    val dependencyClassNameGlobber = ClassNameGlobber(
+    val customHookClassNameGlobber = ClassNameGlobber(
         argumentMap["custom_hook_includes"] ?: emptyList(),
         (argumentMap["custom_hook_excludes"] ?: emptyList()) + customHookNames
     )
@@ -95,7 +121,11 @@ fun premain(agentArgs: String?, instrumentation: Instrumentation) {
             "gep" -> setOf(InstrumentationType.GEP)
             "indir" -> setOf(InstrumentationType.INDIR)
             "native" -> setOf(InstrumentationType.NATIVE)
-            "all" -> InstrumentationType.values().toSet()
+            // Disable GEP instrumentation by default as it appears to negatively affect fuzzing
+            // performance. Our current GEP instrumentation only reports constant indices, but even
+            // when we instead reported non-constant indices, they tended to completely fill up the
+            // table of recent compares and value profile map.
+            "all" -> InstrumentationType.values().toSet() - InstrumentationType.GEP
             else -> {
                 println("WARN: Skipping unknown instrumentation type $it")
                 emptySet()
@@ -116,41 +146,69 @@ fun premain(agentArgs: String?, instrumentation: Instrumentation) {
             }
         }
     }
+    val includedHookNames = instrumentationTypes
+        .mapNotNull { type ->
+            when (type) {
+                InstrumentationType.CMP -> TraceCmpHooks::class.java.name
+                InstrumentationType.DIV -> TraceDivHooks::class.java.name
+                InstrumentationType.INDIR -> TraceIndirHooks::class.java.name
+                InstrumentationType.NATIVE -> NativeLibHooks::class.java.name
+                else -> null
+            }
+        }
+    val coverageIdSynchronizer = if (idSyncFile != null)
+        FileSyncCoverageIdStrategy(idSyncFile)
+    else
+        MemSyncCoverageIdStrategy()
+
+    val (includedHooks, customHooks) = Hooks.loadHooks(includedHookNames.toSet(), customHookNames.toSet())
+    // If we don't append the JARs containing the custom hooks to the bootstrap class loader,
+    // third-party hooks not contained in the agent JAR will not be able to instrument Java standard
+    // library classes. These classes are loaded by the bootstrap / system class loader and would
+    // not be considered when resolving references to hook methods, leading to NoClassDefFoundError
+    // being thrown.
+    customHooks.hookClasses
+        .mapNotNull { jarUriForClass(it) }
+        .toSet()
+        .map { JarFile(File(it)) }
+        .forEach { instrumentation.appendToBootstrapClassLoaderSearch(it) }
+
     val runtimeInstrumentor = RuntimeInstrumentor(
         instrumentation,
         classNameGlobber,
-        dependencyClassNameGlobber,
+        customHookClassNameGlobber,
         instrumentationTypes,
-        idSyncFile,
+        includedHooks.hooks,
+        customHooks.hooks,
+        customHooks.additionalHookClassNameGlobber,
+        coverageIdSynchronizer,
         dumpClassesDir,
     )
-    instrumentation.apply {
-        addTransformer(runtimeInstrumentor)
-    }
 
-    val relevantClassesLoadedBeforeCustomHooks = instrumentation.allLoadedClasses
-        .map { it.name }
-        .filter { classNameGlobber.includes(it) || dependencyClassNameGlobber.includes(it) }
-        .toSet()
-    val customHooks = customHookNames.toSet().flatMap { hookClassName ->
-        try {
-            loadHooks(Class.forName(hookClassName)).also {
-                println("INFO: Loaded ${it.size} hooks from $hookClassName")
-            }
-        } catch (_: ClassNotFoundException) {
-            println("WARN: Failed to load hooks from $hookClassName")
-            emptySet()
+    // These classes are e.g. dependencies of the RuntimeInstrumentor or hooks and thus were loaded
+    // before the instrumentor was ready. Since we haven't enabled it yet, they can safely be
+    // "retransformed": They haven't been transformed yet.
+    val classesToRetransform = instrumentation.allLoadedClasses
+        .filter {
+            classNameGlobber.includes(it.name) ||
+                customHookClassNameGlobber.includes(it.name) ||
+                customHooks.additionalHookClassNameGlobber.includes(it.name)
+        }
+        .filter {
+            instrumentation.isModifiableClass(it)
+        }
+        .toTypedArray()
+
+    instrumentation.addTransformer(runtimeInstrumentor, true)
+
+    if (classesToRetransform.isNotEmpty()) {
+        if (instrumentation.isRetransformClassesSupported) {
+            instrumentation.retransformClasses(*classesToRetransform)
+        } else {
+            println("WARN: Instrumentation was not applied to the following classes as they are dependencies of hooks:")
+            println("WARN: ${classesToRetransform.joinToString()}")
         }
     }
-    val relevantClassesLoadedAfterCustomHooks = instrumentation.allLoadedClasses
-        .map { it.name }
-        .filter { classNameGlobber.includes(it) || dependencyClassNameGlobber.includes(it) }
-        .toSet()
-    val nonHookClassesLoadedByHooks = relevantClassesLoadedAfterCustomHooks - relevantClassesLoadedBeforeCustomHooks
-    if (nonHookClassesLoadedByHooks.isNotEmpty()) {
-        println("WARN: Hooks were not applied to the following classes as they are dependencies of hooks:")
-        println("WARN: ${nonHookClassesLoadedByHooks.joinToString()}")
-    }
 
-    runtimeInstrumentor.registerCustomHooks(customHooks)
+    SignalHandler.initialize()
 }

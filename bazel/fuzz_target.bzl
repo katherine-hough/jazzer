@@ -17,12 +17,20 @@ def java_fuzz_target_test(
         target_class = None,
         deps = [],
         hook_classes = [],
-        native_libs = [],
+        data = [],
         sanitizer = None,
         visibility = None,
         tags = [],
         fuzzer_args = [],
         srcs = [],
+        size = None,
+        timeout = None,
+        env = None,
+        verify_crash_input = True,
+        verify_crash_reproducer = True,
+        expect_crash = True,
+        # Default is that the reproducer does not throw any exception.
+        expected_findings = [],
         **kwargs):
     target_name = name + "_target"
     deploy_manifest_lines = []
@@ -41,6 +49,7 @@ def java_fuzz_target_test(
         create_executable = False,
         deploy_manifest_lines = deploy_manifest_lines,
         deps = target_deps,
+        testonly = True,
         **kwargs
     )
 
@@ -57,19 +66,39 @@ def java_fuzz_target_test(
 
     native.java_test(
         name = name,
-        runtime_deps = ["//bazel:fuzz_target_test_wrapper"],
-        size = "enormous",
-        timeout = "moderate",
+        runtime_deps = [
+            "//bazel/tools/java:fuzz_target_test_wrapper",
+            "//agent:jazzer_api_deploy.jar",
+            ":%s_deploy.jar" % target_name,
+        ],
+        jvm_flags = [
+            # Use the same memory settings for reproducers as those suggested by Jazzer when
+            # encountering an OutOfMemoryError.
+            "-Xmx1620m",
+            # Ensure that reproducers can be compiled even if they contain UTF-8 characters.
+            "-Dfile.encoding=UTF-8",
+        ],
+        size = size or "enormous",
+        timeout = timeout or "moderate",
         args = [
             "$(rootpath %s)" % driver,
+            "$(rootpath //agent:jazzer_api_deploy.jar)",
             "$(rootpath :%s_deploy.jar)" % target_name,
+            str(verify_crash_input),
+            str(verify_crash_reproducer),
+            str(expect_crash),
+            # args are shell tokenized and thus quotes are required in the case where
+            # expected_findings is empty.
+            "'" + ",".join(expected_findings) + "'",
         ] + additional_args + fuzzer_args,
         data = [
             ":%s_deploy.jar" % target_name,
-            "//agent:jazzer_agent_deploy.jar",
+            "//agent:jazzer_agent_deploy",
+            "//agent:jazzer_api_deploy.jar",
             driver,
-        ] + native_libs,
-        main_class = "FuzzTargetTestWrapper",
+        ] + data,
+        env = env,
+        main_class = "com.code_intelligence.jazzer.tools.FuzzTargetTestWrapper",
         use_testrunner = False,
         tags = tags,
         visibility = visibility,

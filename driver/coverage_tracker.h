@@ -20,8 +20,6 @@
 
 #include <string>
 
-#include "jvm_tooling.h"
-
 namespace jazzer {
 
 // The members of this struct are only accessed by libFuzzer.
@@ -30,29 +28,23 @@ struct __attribute__((packed)) PCTableEntry {
 };
 
 // CoverageTracker registers an array of 8-bit coverage counters with
-// libFuzzer. The array is backed by a MappedByteBuffer on the Java
-// side, where it is populated with the actual coverage information.
-class CoverageTracker : public ExceptionPrinter {
+// libFuzzer. The array is populated from Java using Unsafe.
+class CoverageTracker {
  private:
   static uint8_t *counters_;
-
-  static uint32_t *fake_instructions_;
   static PCTableEntry *pc_entries_;
 
-  static void JNICALL RegisterNewCoverageCounters(JNIEnv &env, jclass cls);
-
  public:
-  static void Setup(JNIEnv &env);
-  // Clears the coverage counters array manually. It is cleared automatically
-  // by libFuzzer prior to running the fuzz target, so this function is only
-  // used in tests.
-  static void Clear();
+  static void Initialize(JNIEnv &env, jlong counters);
+  static void RegisterNewCounters(JNIEnv &env, jint old_num_counters,
+                                  jint new_num_counters);
 
   // Returns the address of the coverage counters array.
   static uint8_t *GetCoverageCounters();
 
   static void RecordInitialCoverage(JNIEnv &env);
   static void ReplayInitialCoverage(JNIEnv &env);
-  static std::string ComputeCoverage(JNIEnv &env);
+  static void ReportCoverage(JNIEnv &env, std::string);
+  static void DumpCoverage(JNIEnv &env, std::string);
 };
 }  // namespace jazzer

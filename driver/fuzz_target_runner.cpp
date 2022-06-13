@@ -19,6 +19,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -61,6 +62,9 @@ DEFINE_string(reproducer_path, ".",
 DEFINE_string(coverage_report, "",
               "Path at which a coverage report is stored when the fuzzer "
               "exits. If left empty, no report is generated (default)");
+DEFINE_string(coverage_dump, "",
+              "Path at which a coverage dump is stored when the fuzzer "
+              "exits. If left empty, no dump is generated (default)");
 
 DEFINE_string(autofuzz, "",
               "Fully qualified reference to a method on the classpath that "
@@ -79,6 +83,11 @@ constexpr auto kJazzerClass =
     "com/code_intelligence/jazzer/runtime/JazzerInternal";
 constexpr auto kAutofuzzFuzzTargetClass =
     "com/code_intelligence/jazzer/autofuzz/FuzzTarget";
+
+// A constant pool CONSTANT_Utf8_info entry should be able to hold data of size
+// uint16, but somehow this does not seem to be the case and leads to invalid
+// code crash reproducer code. Reducing the size by one resolves the problem.
+constexpr auto dataChunkMaxLength = std::numeric_limits<uint16_t>::max() - 1;
 
 namespace jazzer {
 // split a string on unescaped spaces
@@ -158,7 +167,26 @@ FuzzTargetRunner::FuzzTargetRunner(
   last_finding_ =
       env.GetStaticFieldID(jazzer_, "lastFinding", "Ljava/lang/Throwable;");
 
-  jclass_ = jvm.FindClass(FLAGS_target_class);
+  // Inform the agent about the fuzz target class.
+  // Important note: This has to be done *before*
+  // jvm.FindClass(FLAGS_target_class) so that hooks can enable themselves in
+  // time for the fuzz target's static initializer.
+  auto on_fuzz_target_ready = jvm.GetStaticMethodID(
+      jazzer_, "onFuzzTargetReady", "(Ljava/lang/String;)V", true);
+  jstring fuzz_target_class = env.NewStringUTF(FLAGS_target_class.c_str());
+  env.CallStaticVoidMethod(jazzer_, on_fuzz_target_ready, fuzz_target_class);
+  if (env.ExceptionCheck()) {
+    env.ExceptionDescribe();
+    return;
+  }
+  env.DeleteLocalRef(fuzz_target_class);
+
+  try {
+    jclass_ = jvm.FindClass(FLAGS_target_class);
+  } catch (const std::runtime_error &error) {
+    std::cerr << "ERROR: " << error.what() << std::endl;
+    exit(1);
+  }
   // one of the following functions is required:
   //    public static void fuzzerTestOneInput(byte[] input)
   //    public static void fuzzerTestOneInput(FuzzedDataProvider data)
@@ -205,8 +233,7 @@ FuzzTargetRunner::FuzzTargetRunner(
       jstring str = env.NewStringUTF(fuzz_target_args_tokens[i].c_str());
       env.SetObjectArrayElement(arg_array, i, str);
     }
-    env.CallStaticObjectMethod(jclass_, fuzzer_initialize_with_args_,
-                               arg_array);
+    env.CallStaticVoidMethod(jclass_, fuzzer_initialize_with_args_, arg_array);
   } else if (fuzzer_initialize_) {
     env.CallStaticVoidMethod(jclass_, fuzzer_initialize_);
   } else {
@@ -214,6 +241,7 @@ FuzzTargetRunner::FuzzTargetRunner(
   }
 
   if (jthrowable exception = env.ExceptionOccurred()) {
+    env.ExceptionClear();
     LOG(ERROR) << "== Java Exception in fuzzerInitialize: ";
     LOG(ERROR) << getStackTrace(exception);
     std::exit(1);
@@ -241,28 +269,28 @@ FuzzTargetRunner::FuzzTargetRunner(
 }
 
 FuzzTargetRunner::~FuzzTargetRunner() {
+  auto &env = jvm_.GetEnv();
   if (FLAGS_hooks && !FLAGS_coverage_report.empty()) {
-    std::string report = CoverageTracker::ComputeCoverage(jvm_.GetEnv());
-    std::ofstream report_file(FLAGS_coverage_report);
-    if (report_file) {
-      report_file << report << std::flush;
-    } else {
-      LOG(ERROR) << "Failed to write coverage report to "
-                 << FLAGS_coverage_report;
-    }
+    CoverageTracker::ReportCoverage(env, FLAGS_coverage_report);
+  }
+  if (FLAGS_hooks && !FLAGS_coverage_dump.empty()) {
+    CoverageTracker::DumpCoverage(env, FLAGS_coverage_dump);
   }
   if (fuzzer_tear_down_ != nullptr) {
     std::cerr << "calling fuzzer teardown function" << std::endl;
-    jvm_.GetEnv().CallStaticVoidMethod(jclass_, fuzzer_tear_down_);
-    if (jthrowable exception = jvm_.GetEnv().ExceptionOccurred())
+    env.CallStaticVoidMethod(jclass_, fuzzer_tear_down_);
+    if (jthrowable exception = env.ExceptionOccurred()) {
+      env.ExceptionClear();
       std::cerr << getStackTrace(exception) << std::endl;
+      _Exit(1);
+    }
   }
 }
 
 RunResult FuzzTargetRunner::Run(const uint8_t *data, const std::size_t size) {
   auto &env = jvm_.GetEnv();
   static std::size_t run_count = 0;
-  if (run_count < 2) {
+  if (run_count < 2 && FLAGS_hooks) {
     run_count++;
     // For the first two runs only, replay the coverage recorded from static
     // initializers. libFuzzer cleared the coverage map after they ran and could
@@ -331,14 +359,50 @@ jthrowable FuzzTargetRunner::GetFinding() const {
       reported_finding != nullptr) {
     env.DeleteLocalRef(unprocessed_finding);
     unprocessed_finding = reported_finding;
+    env.SetStaticObjectField(jazzer_, last_finding_, nullptr);
   }
   jthrowable processed_finding = preprocessException(unprocessed_finding);
-  env.DeleteLocalRef(unprocessed_finding);
+  // If preprocessException returns the same local reference that we passed to
+  // it, we must not decrease the reference count as the returned object will
+  // outlive this method. Otherwise, we have to delete it to prevent leaking the
+  // unprocessed exception.
+  if (processed_finding != unprocessed_finding) {
+    env.DeleteLocalRef(unprocessed_finding);
+  }
   return processed_finding;
 }
 
 void FuzzTargetRunner::DumpReproducer(const uint8_t *data, std::size_t size) {
   auto &env = jvm_.GetEnv();
+  std::string data_sha1 = jazzer::Sha1Hash(data, size);
+  if (!FLAGS_autofuzz.empty()) {
+    auto autofuzz_fuzz_target_class = env.FindClass(kAutofuzzFuzzTargetClass);
+    if (env.ExceptionCheck()) {
+      env.ExceptionDescribe();
+      return;
+    }
+    auto dump_reproducer = env.GetStaticMethodID(
+        autofuzz_fuzz_target_class, "dumpReproducer",
+        "(Lcom/code_intelligence/jazzer/api/FuzzedDataProvider;Ljava/lang/"
+        "String;Ljava/lang/String;)V");
+    if (env.ExceptionCheck()) {
+      env.ExceptionDescribe();
+      return;
+    }
+    FeedFuzzedDataProvider(data, size);
+    auto reproducer_path_jni = env.NewStringUTF(FLAGS_reproducer_path.c_str());
+    auto data_sha1_jni = env.NewStringUTF(data_sha1.c_str());
+    env.CallStaticVoidMethod(autofuzz_fuzz_target_class, dump_reproducer,
+                             GetFuzzedDataProviderJavaObject(jvm_),
+                             reproducer_path_jni, data_sha1_jni);
+    if (env.ExceptionCheck()) {
+      env.ExceptionDescribe();
+      return;
+    }
+    env.DeleteLocalRef(data_sha1_jni);
+    env.DeleteLocalRef(reproducer_path_jni);
+    return;
+  }
   std::string base64_data;
   if (fuzzer_test_one_input_data_) {
     // Record the data retrieved from the FuzzedDataProvider and supply it to a
@@ -349,8 +413,8 @@ void FuzzTargetRunner::DumpReproducer(const uint8_t *data, std::size_t size) {
     const auto finding = GetFinding();
     if (finding == nullptr) {
       LOG(ERROR) << "Failed to reproduce crash when rerunning with recorder";
-      return;
     }
+    env.DeleteLocalRef(finding);
     base64_data = SerializeRecordingFuzzedDataProvider(jvm_, recorder);
   } else {
     absl::string_view data_str(reinterpret_cast<const char *>(data), size);
@@ -359,9 +423,16 @@ void FuzzTargetRunner::DumpReproducer(const uint8_t *data, std::size_t size) {
   const char *fuzz_target_call = fuzzer_test_one_input_data_
                                      ? kTestOneInputWithData
                                      : kTestOneInputWithBytes;
-  std::string data_sha1 = jazzer::Sha1Hash(data, size);
+  // The serialization of recorded FuzzedDataProvider invocations can get to
+  // long to be stored in one String variable in the template. This is
+  // mitigated by chunking the data and concatenating it again in the generated
+  // code.
+  absl::ByLength chunk_delimiter = absl::ByLength(dataChunkMaxLength);
+  std::string chunked_base64_data =
+      absl::StrJoin(absl::StrSplit(base64_data, chunk_delimiter), "\", \"");
+
   std::string reproducer =
-      absl::Substitute(kBaseReproducer, data_sha1, base64_data,
+      absl::Substitute(kBaseReproducer, data_sha1, chunked_base64_data,
                        FLAGS_target_class, fuzz_target_call);
   std::string reproducer_filename = absl::StrFormat("Crash_%s.java", data_sha1);
   std::string reproducer_full_path = absl::StrFormat(

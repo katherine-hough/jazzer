@@ -14,6 +14,7 @@
 
 #include "jvm_tooling.h"
 
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -24,11 +25,8 @@
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/str_split.h"
-#include "coverage_tracker.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
-#include "libfuzzer_callbacks.h"
-#include "signal_handler.h"
 #include "tools/cpp/runfiles/runfiles.h"
 #include "utils.h"
 
@@ -88,30 +86,16 @@ DEFINE_bool(hooks, true,
             "coverage information will be processed. This can be useful for "
             "running a regression test on non-instrumented bytecode.");
 
+DECLARE_bool(fake_pcs);
+
 #ifdef _WIN32
 #define ARG_SEPARATOR ";"
 #else
 #define ARG_SEPARATOR ":"
 #endif
 
-// Called by the agent when
-// com.code_intelligence.jazzer.instrumentor.ClassInstrumentor is initialized.
-// This only happens when FLAGS_hooks is true.
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad_jazzer_initialize(JavaVM *vm,
                                                                void *) {
-  if (!FLAGS_hooks) {
-    LOG(ERROR) << "JNI_OnLoad_jazzer_initialize called with --nohooks";
-    exit(1);
-  }
-  JNIEnv *env = nullptr;
-  jint result = vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_8);
-  if (result != JNI_OK) {
-    LOG(FATAL) << "Failed to get JNI environment";
-    exit(1);
-  }
-  jazzer::registerFuzzerCallbacks(*env);
-  jazzer::CoverageTracker::Setup(*env);
-  jazzer::SignalHandler::Setup(*env);
   return JNI_VERSION_1_8;
 }
 
@@ -155,9 +139,9 @@ void DumpJvmStackTraces() {
   // Do not detach as we may be the main thread (but the JVM exits anyway).
 }
 
-std::string dirFromFullPath(const std::string &path) {
+std::string_view dirFromFullPath(std::string_view path) {
   const auto pos = path.rfind(kPathSeparator);
-  if (pos != std::string::npos) {
+  if (pos != std::string_view::npos) {
     return path.substr(0, pos);
   }
   return "";
@@ -165,7 +149,7 @@ std::string dirFromFullPath(const std::string &path) {
 
 // getInstrumentorAgentPath searches for the fuzzing instrumentation agent and
 // returns the location if it is found. Otherwise it calls exit(0).
-std::string getInstrumentorAgentPath(const std::string &executable_path) {
+std::string getInstrumentorAgentPath(std::string_view executable_path) {
   // User provided agent location takes precedence.
   if (!FLAGS_agent_path.empty()) {
     if (std::ifstream(FLAGS_agent_path).good()) return FLAGS_agent_path;
@@ -179,7 +163,7 @@ std::string getInstrumentorAgentPath(const std::string &executable_path) {
     using bazel::tools::cpp::runfiles::Runfiles;
     std::string error;
     std::unique_ptr<Runfiles> runfiles(
-        Runfiles::Create(executable_path, &error));
+        Runfiles::Create(std::string(executable_path), &error));
     if (runfiles != nullptr) {
       auto bazel_path = runfiles->Rlocation(kAgentBazelRunfilesPath);
       if (!bazel_path.empty() && std::ifstream(bazel_path).good())
@@ -248,16 +232,21 @@ std::vector<std::string> splitEscaped(const std::string &str) {
   return parts;
 }
 
-JVM::JVM(const std::string &executable_path) {
+JVM::JVM(std::string_view executable_path, std::string_view seed) {
   // combine class path from command line flags and JAVA_FUZZER_CLASSPATH env
   // variable
   std::string class_path = absl::StrFormat("-Djava.class.path=%s", FLAGS_cp);
   const auto class_path_from_env = std::getenv("JAVA_FUZZER_CLASSPATH");
   if (class_path_from_env) {
-    class_path += absl::StrFormat(ARG_SEPARATOR "%s", class_path_from_env);
+    class_path += absl::StrCat(ARG_SEPARATOR, class_path_from_env);
   }
-  class_path += absl::StrFormat(ARG_SEPARATOR "%s",
-                                getInstrumentorAgentPath(executable_path));
+  if (!FLAGS_hooks) {
+    // A Java agent is implicitly added to the system class loader's classpath,
+    // so there is no need to add the Jazzer agent here if we are running with
+    // the agent enabled.
+    class_path +=
+        absl::StrCat(ARG_SEPARATOR, getInstrumentorAgentPath(executable_path));
+  }
   LOG(INFO) << "got class path " << class_path;
 
   std::vector<JavaVMOption> options;
@@ -273,6 +262,30 @@ JVM::JVM(const std::string &executable_path) {
       JavaVMOption{.optionString = (char *)"-XX:-OmitStackTraceInFastThrow"});
   // Optimize GC for high throughput rather than low latency.
   options.push_back(JavaVMOption{.optionString = (char *)"-XX:+UseParallelGC"});
+  options.push_back(
+      JavaVMOption{.optionString = (char *)"-XX:+CriticalJNINatives"});
+  // Forward libFuzzer's random seed so that Jazzer hooks can base their
+  // mutations on it.
+  std::string seed_property = absl::StrFormat("-Djazzer.seed=%s", seed);
+  options.push_back(
+      JavaVMOption{.optionString = const_cast<char *>(seed_property.c_str())});
+  std::string fake_pcs_property = absl::StrFormat(
+      "-Djazzer.fake_pcs=%s", FLAGS_fake_pcs ? "true" : "false");
+  options.push_back(JavaVMOption{
+      .optionString = const_cast<char *>(fake_pcs_property.c_str())});
+
+  // Add additional JVM options set through JAVA_OPTS.
+  std::vector<std::string> java_opts_args;
+  const char *java_opts = std::getenv("JAVA_OPTS");
+  if (java_opts != nullptr) {
+    // Mimic the behavior of the JVM when it sees JAVA_TOOL_OPTIONS.
+    std::cerr << "Picked up JAVA_OPTS: " << java_opts << std::endl;
+    java_opts_args = absl::StrSplit(java_opts, ' ');
+    for (const std::string &java_opt : java_opts_args) {
+      options.push_back(
+          JavaVMOption{.optionString = const_cast<char *>(java_opt.c_str())});
+    }
+  }
 
   // add additional jvm options set through command line flags
   std::vector<std::string> jvm_args;
