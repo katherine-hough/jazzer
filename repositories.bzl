@@ -31,35 +31,26 @@ def jazzer_dependencies():
     maybe(
         http_archive,
         name = "bazel_skylib",
-        sha256 = "c6966ec828da198c5d9adbaa94c05e3a1c7f21bd012a0b29ba8ddbccb2c93b0d",
+        sha256 = "74d544d96f4a5bb630d465ca8bbcfe231e3594e5aae57e1edbf17a6eb3ca2506",
         urls = [
-            "https://github.com/bazelbuild/bazel-skylib/releases/download/1.1.1/bazel-skylib-1.1.1.tar.gz",
-            "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.1.1/bazel-skylib-1.1.1.tar.gz",
+            "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.3.0/bazel-skylib-1.3.0.tar.gz",
+            "https://github.com/bazelbuild/bazel-skylib/releases/download/1.3.0/bazel-skylib-1.3.0.tar.gz",
         ],
     )
 
     maybe(
         http_archive,
         name = "io_bazel_rules_kotlin",
-        sha256 = "12d22a3d9cbcf00f2e2d8f0683ba87d3823cb8c7f6837568dd7e48846e023307",
-        url = "https://github.com/bazelbuild/rules_kotlin/releases/download/v1.5.0/rules_kotlin_release.tgz",
-    )
-
-    maybe(
-        http_archive,
-        name = "com_google_glog",
-        repo_mapping = {"@com_github_gflags_gflags": "@jazzer_com_github_gflags_gflags"},
-        sha256 = "eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5",
-        strip_prefix = "glog-0.5.0",
-        url = "https://github.com/google/glog/archive/refs/tags/v0.5.0.tar.gz",
+        sha256 = "a57591404423a52bd6b18ebba7979e8cd2243534736c5c94d35c89718ea38f94",
+        url = "https://github.com/bazelbuild/rules_kotlin/releases/download/v1.6.0/rules_kotlin_release.tgz",
     )
 
     maybe(
         http_archive,
         name = "com_google_absl",
-        sha256 = "dcf71b9cba8dc0ca9940c4b316a0c796be8fab42b070bb6b7cab62b48f0e66c4",
-        strip_prefix = "abseil-cpp-20211102.0",
-        url = "https://github.com/abseil/abseil-cpp/archive/refs/tags/20211102.0.tar.gz",
+        sha256 = "4208129b49006089ba1d6710845a45e31c59b0ab6bff9e5788a87f55c5abd602",
+        strip_prefix = "abseil-cpp-20220623.0",
+        url = "https://github.com/abseil/abseil-cpp/archive/refs/tags/20220623.0.tar.gz",
     )
 
     maybe(
@@ -91,30 +82,37 @@ def jazzer_dependencies():
     maybe(
         http_archive,
         name = "fmeum_rules_jni",
-        sha256 = "45acc80812e0ecafc3f1b2f17efa6141d014aa2cf49c94a83252f570124d161a",
-        strip_prefix = "rules_jni-0.5.1",
-        url = "https://github.com/fmeum/rules_jni/archive/refs/tags/v0.5.1.tar.gz",
+        sha256 = "47f0c566ef93fbca2fe94ae8b964d9bf2cb5b31be0efa66e9684b096e54042c1",
+        strip_prefix = "rules_jni-0.5.2",
+        url = "https://github.com/fmeum/rules_jni/archive/refs/tags/v0.5.2.tar.gz",
+    )
+
+    maybe(
+        http_jar,
+        name = "net_bytebuddy_byte_buddy_agent",
+        sha256 = "25eed4301bbde3724a4bac0e7fe4a0b371c64b5fb40160b29480de3afd04efd5",
+        url = "https://repo1.maven.org/maven2/net/bytebuddy/byte-buddy-agent/1.12.13/byte-buddy-agent-1.12.13.jar",
     )
 
     maybe(
         http_jar,
         name = "org_ow2_asm_asm",
-        sha256 = "b9d4fe4d71938df38839f0eca42aaaa64cf8b313d678da036f0cb3ca199b47f5",
-        url = "https://repo1.maven.org/maven2/org/ow2/asm/asm/9.2/asm-9.2.jar",
+        sha256 = "1263369b59e29c943918de11d6d6152e2ec6085ce63e5710516f8c67d368e4bc",
+        url = "https://repo1.maven.org/maven2/org/ow2/asm/asm/9.3/asm-9.3.jar",
     )
 
     maybe(
         http_jar,
         name = "org_ow2_asm_asm_commons",
-        sha256 = "be4ce53138a238bb522cd781cf91f3ba5ce2f6ca93ec62d46a162a127225e0a6",
-        url = "https://repo1.maven.org/maven2/org/ow2/asm/asm-commons/9.2/asm-commons-9.2.jar",
+        sha256 = "a347c24732db2aead106b6e5996a015b06a3ef86e790a4f75b61761f0d2f7f39",
+        url = "https://repo1.maven.org/maven2/org/ow2/asm/asm-commons/9.3/asm-commons-9.3.jar",
     )
 
     maybe(
         http_jar,
         name = "org_ow2_asm_asm_tree",
-        sha256 = "aabf9bd23091a4ebfc109c1f3ee7cf3e4b89f6ba2d3f51c5243f16b3cffae011",
-        url = "https://repo1.maven.org/maven2/org/ow2/asm/asm-tree/9.2/asm-tree-9.2.jar",
+        sha256 = "ae629c2609f39681ef8d140a42a23800464a94f2d23e36d8f25cd10d5e4caff4",
+        url = "https://repo1.maven.org/maven2/org/ow2/asm/asm-tree/9.3/asm-tree-9.3.jar",
     )
 
     maybe(
@@ -145,6 +143,7 @@ def jazzer_dependencies():
         http_archive,
         name = "jazzer_libfuzzer",
         build_file = Label("//third_party:libFuzzer.BUILD"),
-        sha256 = "630202d393114f828f350da57d42a6d4fa12ed614a578021d87ba8056dbec4c4",
-        url = "https://github.com/CodeIntelligenceTesting/llvm-project-jazzer/releases/download/2022-02-26/jazzer-libfuzzer-2022-02-26.tar.gz",
+        sha256 = "4dad21b6a07571c851b8b67cc8ad9172a3fee49ba10f7de03368796ae9494813",
+        strip_prefix = "llvm-project-jazzer-2022-09-09/compiler-rt/lib/fuzzer",
+        url = "https://github.com/CodeIntelligenceTesting/llvm-project-jazzer/archive/refs/tags/2022-09-09.tar.gz",
     )

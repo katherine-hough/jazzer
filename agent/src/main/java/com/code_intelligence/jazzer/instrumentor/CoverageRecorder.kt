@@ -59,16 +59,12 @@ object CoverageRecorder {
         additionalCoverage.addAll(CoverageMap.getCoveredIds())
     }
 
-    @JvmStatic
-    fun replayCoveredIds() {
-        CoverageMap.replayCoveredIds(additionalCoverage)
-    }
-
     /**
      * [dumpCoverageReport] dumps a human-readable coverage report of files using any [coveredIds] to [dumpFileName].
      */
     @JvmStatic
-    fun dumpCoverageReport(coveredIds: IntArray, dumpFileName: String) {
+    @JvmOverloads
+    fun dumpCoverageReport(dumpFileName: String, coveredIds: IntArray = CoverageMap.getEverCoveredIds()) {
         File(dumpFileName).bufferedWriter().use { writer ->
             writer.write(computeFileCoverage(coveredIds))
         }
@@ -119,9 +115,10 @@ object CoverageRecorder {
      * can be used by the JaCoCo report command to create reports also including not covered files.
      */
     @JvmStatic
-    fun dumpJacocoCoverage(coveredIds: IntArray, dumpFileName: String) {
+    @JvmOverloads
+    fun dumpJacocoCoverage(dumpFileName: String, coveredIds: IntArray = CoverageMap.getEverCoveredIds()) {
         FileOutputStream(dumpFileName).use { outStream ->
-            dumpJacocoCoverage(coveredIds, outStream)
+            dumpJacocoCoverage(outStream, coveredIds)
         }
     }
 
@@ -129,7 +126,7 @@ object CoverageRecorder {
      * [dumpJacocoCoverage] dumps the JaCoCo coverage of files using any [coveredIds] to [outStream].
      */
     @JvmStatic
-    fun dumpJacocoCoverage(coveredIds: IntArray, outStream: OutputStream) {
+    fun dumpJacocoCoverage(outStream: OutputStream, coveredIds: IntArray) {
         // Return if no class has been instrumented.
         val startTimestamp = startTimestamp ?: return
 

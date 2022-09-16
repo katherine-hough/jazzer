@@ -1,6 +1,7 @@
 java_library(
     name = "api",
     srcs = [
+        "Autofuzz.java",
         "AutofuzzConstructionException.java",
         "AutofuzzInvocationException.java",
         "CannedFuzzedDataProvider.java",
@@ -15,6 +16,16 @@ java_library(
         "Function4.java",
         "Function5.java",
         "FuzzedDataProvider.java",
+    ],
+    visibility = ["//visibility:public"],
+    runtime_deps = [
+        ":hooks",
+    ],
+)
+
+java_library(
+    name = "hooks",
+    srcs = [
         "FuzzerSecurityIssueCritical.java",
         "FuzzerSecurityIssueHigh.java",
         "FuzzerSecurityIssueLow.java",

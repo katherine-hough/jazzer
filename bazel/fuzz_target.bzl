@@ -15,8 +15,9 @@
 def java_fuzz_target_test(
         name,
         target_class = None,
+        target_method = None,
         deps = [],
-        hook_classes = [],
+        hook_jar = None,
         data = [],
         sanitizer = None,
         visibility = None,
@@ -28,16 +29,20 @@ def java_fuzz_target_test(
         env = None,
         verify_crash_input = True,
         verify_crash_reproducer = True,
-        expect_crash = True,
-        # Default is that the reproducer does not throw any exception.
-        expected_findings = [],
+        # Superset of the findings the fuzzer is expected to find. Since fuzzing runs are not
+        # deterministic across OSes, pinpointing the exact set of findings is difficult.
+        allowed_findings = [],
+        # By default, expect a crash iff allowed_findings isn't empty.
+        expect_crash = None,
         **kwargs):
     target_name = name + "_target"
     deploy_manifest_lines = []
     if target_class:
         deploy_manifest_lines.append("Jazzer-Fuzz-Target-Class: %s" % target_class)
-    if hook_classes:
-        deploy_manifest_lines.append("Jazzer-Hook-Classes: %s" % ":".join(hook_classes))
+    if target_method:
+        fuzzer_args = list(fuzzer_args) + ["--target_method=" + target_method]
+    if expect_crash == None:
+        expect_crash = len(allowed_findings) != 0
 
     # Deps can only be specified on java_binary targets with sources, which
     # excludes e.g. Kotlin libraries wrapped into java_binary via runtime_deps.
@@ -52,8 +57,6 @@ def java_fuzz_target_test(
         testonly = True,
         **kwargs
     )
-
-    additional_args = []
 
     if sanitizer == None:
         driver = "//driver:jazzer_driver"
@@ -80,23 +83,24 @@ def java_fuzz_target_test(
         ],
         size = size or "enormous",
         timeout = timeout or "moderate",
+        # args are shell tokenized and thus quotes are required in the case where arguments
+        # are empty.
         args = [
             "$(rootpath %s)" % driver,
             "$(rootpath //agent:jazzer_api_deploy.jar)",
             "$(rootpath :%s_deploy.jar)" % target_name,
+            "$(rootpath %s)" % hook_jar if hook_jar else "''",
             str(verify_crash_input),
             str(verify_crash_reproducer),
             str(expect_crash),
-            # args are shell tokenized and thus quotes are required in the case where
-            # expected_findings is empty.
-            "'" + ",".join(expected_findings) + "'",
-        ] + additional_args + fuzzer_args,
+            "'" + ",".join(allowed_findings) + "'",
+        ] + fuzzer_args,
         data = [
             ":%s_deploy.jar" % target_name,
             "//agent:jazzer_agent_deploy",
             "//agent:jazzer_api_deploy.jar",
             driver,
-        ] + data,
+        ] + data + ([hook_jar] if hook_jar else []),
         env = env,
         main_class = "com.code_intelligence.jazzer.tools.FuzzTargetTestWrapper",
         use_testrunner = False,

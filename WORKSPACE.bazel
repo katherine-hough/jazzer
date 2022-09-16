@@ -37,23 +37,23 @@ http_archive(
 
 http_archive(
     name = "googletest",
-    sha256 = "9dc9157a9a1551ec7a7e43daea9a694a0bb5fb8bec81235d8a1e6ef64c716dcb",
-    strip_prefix = "googletest-release-1.10.0",
-    url = "https://github.com/google/googletest/archive/refs/tags/release-1.10.0.tar.gz",
+    sha256 = "81964fe578e9bd7c94dfdb09c8e4d6e6759e19967e397dbea48d1c10e45d0df2",
+    strip_prefix = "googletest-release-1.12.1",
+    url = "https://github.com/google/googletest/archive/refs/tags/release-1.12.1.tar.gz",
 )
 
 http_archive(
     name = "rules_foreign_cc",
-    sha256 = "bcd0c5f46a49b85b384906daae41d277b3dc0ff27c7c752cc51e43048a58ec83",
-    strip_prefix = "rules_foreign_cc-0.7.1",
-    url = "https://github.com/bazelbuild/rules_foreign_cc/archive/refs/tags/0.7.1.tar.gz",
+    sha256 = "6041f1374ff32ba711564374ad8e007aef77f71561a7ce784123b9b4b88614fc",
+    strip_prefix = "rules_foreign_cc-0.8.0",
+    url = "https://github.com/bazelbuild/rules_foreign_cc/archive/refs/tags/0.8.0.tar.gz",
 )
 
 http_archive(
     name = "rules_jvm_external",
-    sha256 = "f36441aa876c4f6427bfb2d1f2d723b48e9d930b62662bf723ddfb8fc80f0140",
-    strip_prefix = "rules_jvm_external-4.1",
-    url = "https://github.com/bazelbuild/rules_jvm_external/archive/refs/tags/4.1.zip",
+    sha256 = "6274687f6fc5783b589f56a2f1ed60de3ce1f99bc4e8f9edef3de43bdf7c6e74",
+    strip_prefix = "rules_jvm_external-4.3",
+    url = "https://github.com/bazelbuild/rules_jvm_external/archive/refs/tags/4.3.zip",
 )
 
 http_archive(
@@ -123,4 +123,18 @@ http_file(
     executable = True,
     sha256 = "4120cc9186a0687db218520a2d0dc9bae75d15faf41d87448b6b6c5140c19156",
     urls = ["https://raw.githubusercontent.com/linux-test-project/lcov/6da8399c7a7a3370de2c69b16b092e945442ffcd/bin/genhtml"],
+)
+
+http_file(
+    name = "jacocoagent",
+    downloaded_file_path = "jacocoagent.jar",
+    sha256 = "d931125fc3f9c8e5ee36b94269134a03b3b88f94d93e775f2d57ac608b766145",
+    urls = ["https://repo1.maven.org/maven2/org/jacoco/org.jacoco.agent/0.8.7/org.jacoco.agent-0.8.7-runtime.jar"],
+)
+
+http_file(
+    name = "jacococli",
+    downloaded_file_path = "jacococli.jar",
+    sha256 = "11b549a9ef14d8454534f914ca1051fb9bcacab7f501e9f1c018eacfc5e77e8d",
+    urls = ["https://repo1.maven.org/maven2/org/jacoco/org.jacoco.cli/0.8.7/org.jacoco.cli-0.8.7-nodeps.jar"],
 )

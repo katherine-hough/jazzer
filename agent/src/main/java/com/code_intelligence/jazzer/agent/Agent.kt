@@ -16,104 +16,36 @@
 
 package com.code_intelligence.jazzer.agent
 
+import com.code_intelligence.jazzer.driver.Opt
 import com.code_intelligence.jazzer.instrumentor.CoverageRecorder
 import com.code_intelligence.jazzer.instrumentor.Hooks
 import com.code_intelligence.jazzer.instrumentor.InstrumentationType
-import com.code_intelligence.jazzer.runtime.ManifestUtils
-import com.code_intelligence.jazzer.runtime.NativeLibHooks
-import com.code_intelligence.jazzer.runtime.SignalHandler
-import com.code_intelligence.jazzer.runtime.TraceCmpHooks
-import com.code_intelligence.jazzer.runtime.TraceDivHooks
-import com.code_intelligence.jazzer.runtime.TraceIndirHooks
 import com.code_intelligence.jazzer.utils.ClassNameGlobber
-import java.io.File
+import com.code_intelligence.jazzer.utils.ManifestUtils
 import java.lang.instrument.Instrumentation
-import java.net.URI
 import java.nio.file.Paths
-import java.util.jar.JarFile
-import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 
-private val KNOWN_ARGUMENTS = listOf(
-    "instrumentation_includes",
-    "instrumentation_excludes",
-    "custom_hook_includes",
-    "custom_hook_excludes",
-    "trace",
-    "custom_hooks",
-    "id_sync_file",
-    "dump_classes_dir",
-)
-
-// To be accessible by the agent classes the native library has to be loaded by the same class loader.
-// premain is executed in the context of the system class loader. At the beginning of premain the agent jar is added to
-// the bootstrap class loader and all subsequently required agent classes are loaded by it. Hence, it's not possible to
-// load the native library directly in premain by the system class loader, instead it's delegated to NativeLibraryLoader
-// loaded by the bootstrap class loader.
-internal object NativeLibraryLoader {
-    fun load() {
-        // Calls JNI_OnLoad_jazzer_initialize in the driver, which ensures that dynamically
-        // linked JNI methods are resolved against it.
-        System.loadLibrary("jazzer_initialize")
-    }
-}
-
-private object AgentJarFinder {
-    val agentJarFile = jarUriForClass(AgentJarFinder::class.java)?.let { JarFile(File(it)) }
-}
-
-fun jarUriForClass(clazz: Class<*>): URI? {
-    return clazz.protectionDomain?.codeSource?.location?.toURI()
-}
-
-private val argumentDelimiter =
-    if (System.getProperty("os.name").startsWith("Windows")) ";" else ":"
-
-@OptIn(ExperimentalPathApi::class)
-fun premain(agentArgs: String?, instrumentation: Instrumentation) {
-    // Add the agent jar (i.e., the jar out of which we are currently executing) to the search path of the bootstrap
-    // class loader to ensure that instrumented classes can find the CoverageMap class regardless of which ClassLoader
-    // they are using.
-    if (AgentJarFinder.agentJarFile != null) {
-        instrumentation.appendToBootstrapClassLoaderSearch(AgentJarFinder.agentJarFile)
-    } else {
-        println("WARN: Failed to add agent JAR to bootstrap class loader search path")
-    }
-    NativeLibraryLoader.load()
-
-    val argumentMap = (agentArgs ?: "")
-        .split(',')
-        .mapNotNull {
-            val splitArg = it.split('=', limit = 2)
-            when {
-                splitArg.size != 2 -> {
-                    if (splitArg[0].isNotEmpty())
-                        println("WARN: Ignoring argument ${splitArg[0]} without value")
-                    null
-                }
-                splitArg[0] !in KNOWN_ARGUMENTS -> {
-                    println("WARN: Ignoring unknown argument ${splitArg[0]}")
-                    null
-                }
-                else -> splitArg[0] to splitArg[1].split(argumentDelimiter)
-            }
-        }.toMap()
+fun install(instrumentation: Instrumentation) {
     val manifestCustomHookNames =
         ManifestUtils.combineManifestValues(ManifestUtils.HOOK_CLASSES).flatMap {
             it.split(':')
         }.filter { it.isNotBlank() }
-    val customHookNames = manifestCustomHookNames + (argumentMap["custom_hooks"] ?: emptyList())
-    val classNameGlobber = ClassNameGlobber(
-        argumentMap["instrumentation_includes"] ?: emptyList(),
-        (argumentMap["instrumentation_excludes"] ?: emptyList()) + customHookNames
-    )
+    val allCustomHookNames = (manifestCustomHookNames + Opt.customHooks).toSet()
+    val disabledCustomHookNames = Opt.disabledHooks.toSet()
+    val customHookNames = allCustomHookNames - disabledCustomHookNames
+    val disabledCustomHooksToPrint = allCustomHookNames - customHookNames.toSet()
+    if (disabledCustomHooksToPrint.isNotEmpty()) {
+        println("INFO: Not using the following disabled hooks: ${disabledCustomHooksToPrint.joinToString(", ")}")
+    }
+
+    val classNameGlobber = ClassNameGlobber(Opt.instrumentationIncludes, Opt.instrumentationExcludes + customHookNames)
     CoverageRecorder.classNameGlobber = classNameGlobber
-    val customHookClassNameGlobber = ClassNameGlobber(
-        argumentMap["custom_hook_includes"] ?: emptyList(),
-        (argumentMap["custom_hook_excludes"] ?: emptyList()) + customHookNames
-    )
-    val instrumentationTypes = (argumentMap["trace"] ?: listOf("all")).flatMap {
+    val customHookClassNameGlobber = ClassNameGlobber(Opt.customHookIncludes, Opt.customHookExcludes + customHookNames)
+    // FIXME: Setting trace to the empty string explicitly results in all rather than no trace types
+    //  being applied - this is unintuitive.
+    val instrumentationTypes = (Opt.trace.takeIf { it.isNotEmpty() } ?: listOf("all")).flatMap {
         when (it) {
             "cmp" -> setOf(InstrumentationType.CMP)
             "cov" -> setOf(InstrumentationType.COV)
@@ -132,13 +64,13 @@ fun premain(agentArgs: String?, instrumentation: Instrumentation) {
             }
         }
     }.toSet()
-    val idSyncFile = argumentMap["id_sync_file"]?.let {
-        Paths.get(it.single()).also { path ->
+    val idSyncFile = Opt.idSyncFile?.takeUnless { it.isEmpty() }?.let {
+        Paths.get(it).also { path ->
             println("INFO: Synchronizing coverage IDs in ${path.toAbsolutePath()}")
         }
     }
-    val dumpClassesDir = argumentMap["dump_classes_dir"]?.let {
-        Paths.get(it.single()).toAbsolutePath().also { path ->
+    val dumpClassesDir = Opt.dumpClassesDir.takeUnless { it.isEmpty() }?.let {
+        Paths.get(it).toAbsolutePath().also { path ->
             if (path.exists() && path.isDirectory()) {
                 println("INFO: Dumping instrumented classes into $path")
             } else {
@@ -149,10 +81,10 @@ fun premain(agentArgs: String?, instrumentation: Instrumentation) {
     val includedHookNames = instrumentationTypes
         .mapNotNull { type ->
             when (type) {
-                InstrumentationType.CMP -> TraceCmpHooks::class.java.name
-                InstrumentationType.DIV -> TraceDivHooks::class.java.name
-                InstrumentationType.INDIR -> TraceIndirHooks::class.java.name
-                InstrumentationType.NATIVE -> NativeLibHooks::class.java.name
+                InstrumentationType.CMP -> "com.code_intelligence.jazzer.runtime.TraceCmpHooks"
+                InstrumentationType.DIV -> "com.code_intelligence.jazzer.runtime.TraceDivHooks"
+                InstrumentationType.INDIR -> "com.code_intelligence.jazzer.runtime.TraceIndirHooks"
+                InstrumentationType.NATIVE -> "com.code_intelligence.jazzer.runtime.NativeLibHooks"
                 else -> null
             }
         }
@@ -161,17 +93,13 @@ fun premain(agentArgs: String?, instrumentation: Instrumentation) {
     else
         MemSyncCoverageIdStrategy()
 
-    val (includedHooks, customHooks) = Hooks.loadHooks(includedHookNames.toSet(), customHookNames.toSet())
     // If we don't append the JARs containing the custom hooks to the bootstrap class loader,
     // third-party hooks not contained in the agent JAR will not be able to instrument Java standard
     // library classes. These classes are loaded by the bootstrap / system class loader and would
     // not be considered when resolving references to hook methods, leading to NoClassDefFoundError
     // being thrown.
-    customHooks.hookClasses
-        .mapNotNull { jarUriForClass(it) }
-        .toSet()
-        .map { JarFile(File(it)) }
-        .forEach { instrumentation.appendToBootstrapClassLoaderSearch(it) }
+    Hooks.appendHooksToBootstrapClassLoaderSearch(instrumentation, customHookNames.toSet())
+    val (includedHooks, customHooks) = Hooks.loadHooks(includedHookNames.toSet(), customHookNames.toSet())
 
     val runtimeInstrumentor = RuntimeInstrumentor(
         instrumentation,
@@ -209,6 +137,4 @@ fun premain(agentArgs: String?, instrumentation: Instrumentation) {
             println("WARN: ${classesToRetransform.joinToString()}")
         }
     }
-
-    SignalHandler.initialize()
 }

@@ -281,9 +281,6 @@ Jazzer addresses this issue by ignoring exceptions that the target method declar
 In addition to that, you can provide a list of exceptions to be ignored during fuzzing via the `--autofuzz_ignore` flag in the form of a comma-separated list.
 You can specify concrete exceptions (e.g., `java.lang.NullPointerException`), in which case also subclasses of these exception classes will be ignored, or glob patterns to ignore all exceptions in a specific package (e.g. `java.lang.*` or `com.company.**`).
 
-When fuzzing with `--autofuzz`, Jazzer automatically enables the `--keep_going` mode to keep fuzzing indefinitely after the first finding.
-Set `--keep_going=N` explicitly to stop after the `N`-th finding.
-
 #### Docker
 To facilitate using the Autofuzz mode, there is a docker image that you can use to fuzz libraries just by providing their Maven coordinates.
 The dependencies will then be downloaded and autofuzzed:
@@ -297,8 +294,7 @@ As an example, you can autofuzz the `json-sanitizer` library as follows:
 docker run -it cifuzz/jazzer-autofuzz \
    com.mikesamuel:json-sanitizer:1.2.0 \
    com.google.json.JsonSanitizer::sanitize \
-   --autofuzz_ignore=java.lang.ArrayIndexOutOfBoundsException \
-   --keep_going=1
+   --autofuzz_ignore=java.lang.ArrayIndexOutOfBoundsException
 ```
 
 ####
@@ -366,7 +362,7 @@ Jazzer has so far uncovered the following vulnerabilities and bugs:
 | [google/re2j](https://github.com/google/re2j) | `NullPointerException` in `Pattern.compile` | [reported](https://github.com/google/re2j/issues/148) | | [@schirrmacher](https://github.com/schirrmacher) |
 | [google/gson](https://github.com/google/gson) | `ArrayIndexOutOfBounds` in `ParseString` | [fixed](https://bugs.chromium.org/p/oss-fuzz/issues/detail?id=40838) | | [@DavidKorczynski](https://twitter.com/Davkorcz) |
 
-As Jazzer is used to fuzz JVM projects in OSS-Fuzz, an additional list of bugs can be found [on the OSS-Fuzz issue tracker](https://bugs.chromium.org/p/oss-fuzz/issues/list?q=proj%3A%22json-sanitizer%22%20OR%20proj%3A%22fastjson2%22%20OR%20proj%3A%22jackson-core%22%20OR%20proj%3A%22jackson-dataformats-binary%22%20OR%20proj%3A%22jackson-dataformats-xml%22%20OR%20proj%3A%22apache-commons%22%20OR%20proj%3A%22jsoup%22&can=1).
+As Jazzer is used to fuzz JVM projects in OSS-Fuzz, an additional list of bugs can be found [on the OSS-Fuzz issue tracker](https://bugs.chromium.org/p/oss-fuzz/issues/list?q=proj%3A%22json-sanitizer%22%20OR%20proj%3A%22fastjson2%22%20OR%20proj%3A%22jackson-core%22%20OR%20proj%3A%22jackson-dataformats-binary%22%20OR%20proj%3A%22jackson-dataformats-xml%22%20OR%20proj%3A%22apache-commons%22%20OR%20proj%3A%22jsoup%22%20OR%20proj%3A%22apache-commons-codec%22%20OR%20proj%3A%22apache-commons-io%22%20OR%20proj%3A%22apache-commons-jxpath%22%20OR%20proj%3A%22apache-commons-lang%22%20OR%20proj%3A%22httpcomponents-client%22%20OR%20proj%3A%22httpcomponents-core%22%20OR%20proj%3A%22tomcat%22%20OR%20proj%3A%22archaius-core%22%20OR%20proj%3A%22bc-java%22%20OR%20proj%3A%22gson%22%20OR%20proj%3A%22guava%22%20OR%20proj%3A%22guice%22%20OR%20proj%3A%22hdrhistogram%22%20OR%20proj%3A%22jackson-databind%22%20OR%20proj%3A%22javassist%22%20OR%20proj%3A%22jersey%22%20OR%20proj%3A%22jettison%22%20OR%20proj%3A%22joda-time%22%20OR%20proj%3A%22jul-to-slf4j%22%20OR%20proj%3A%22logback%22%20OR%20proj%3A%22servo-core%22%20OR%20proj%3A%22slf4j-api%22%20OR%20proj%3A%22snakeyaml%22%20OR%20proj%3A%22spring-boot-actuator%22%20OR%20proj%3A%22spring-boot%22%20OR%20proj%3A%22spring-framework%22%20OR%20proj%3A%22spring-security%22%20OR%20proj%3A%22stringtemplate4%22%20OR%20proj%3A%22woodstox%22%20OR%20proj%3A%22xmlpulll%22%20OR%20proj%3A%22xstream%22&can=1).
 
 If you find bugs with Jazzer, we would like to hear from you!
 Feel free to [open an issue](https://github.com/CodeIntelligenceTesting/jazzer/issues/new) or submit a pull request.
@@ -429,7 +425,7 @@ The particular instrumentation types to apply can be specified using the `--trac
 * `indir`: call through `Method#invoke`
 * `all`: shorthand to apply all available instrumentations (except `gep`)
 
-Multiple instrumentation types can be combined with a colon.
+Multiple instrumentation types can be combined with a colon (Linux, macOS) or a semicolon (Windows).
 
 ### Value Profile
 
@@ -438,9 +434,6 @@ When running with this flag, the feedback about compares and constants received 
 associated with the particular bytecode location and used to provide additional coverage instrumentation.
 See [ExampleValueProfileFuzzer.java](https://github.com/CodeIntelligenceTesting/jazzer/tree/main/examples/src/main/java/com/example/ExampleValueProfileFuzzer.java)
 for a fuzz target that would be very hard to fuzz without value profile.
-
-As passing the bytecode location back to libFuzzer requires inline assembly and may thus not be fully portable, it can be disabled
-via the flag `--nofake_pcs`.
 
 ### Custom Hooks
 

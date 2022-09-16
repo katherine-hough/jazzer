@@ -17,10 +17,11 @@ package com.code_intelligence.jazzer.instrumentor
 import com.code_intelligence.jazzer.api.MethodHook
 import com.code_intelligence.jazzer.api.MethodHooks
 import com.code_intelligence.jazzer.utils.ClassNameGlobber
-import com.code_intelligence.jazzer.utils.descriptor
 import io.github.classgraph.ClassGraph
 import io.github.classgraph.ScanResult
+import java.lang.instrument.Instrumentation
 import java.lang.reflect.Method
+import java.util.jar.JarFile
 
 data class Hooks(
     val hooks: List<Hook>,
@@ -29,6 +30,23 @@ data class Hooks(
 ) {
 
     companion object {
+
+        fun appendHooksToBootstrapClassLoaderSearch(instrumentation: Instrumentation, hookClassNames: Set<String>) {
+            hookClassNames.mapNotNull { hook ->
+                val hookClassFilePath = "/${hook.replace('.', '/')}.class"
+                val hookClassFile = Companion::class.java.getResource(hookClassFilePath) ?: return@mapNotNull null
+                if ("jar" != hookClassFile.protocol) {
+                    return@mapNotNull null
+                }
+                // hookClassFile.file looks as follows:
+                // file:/tmp/ExampleFuzzerHooks_deploy.jar!/com/example/ExampleFuzzerHooks.class
+                hookClassFile.file.removePrefix("file:").takeWhile { it != '!' }
+            }
+                .toSet()
+                .map { JarFile(it) }
+                .forEach { instrumentation.appendToBootstrapClassLoaderSearch(it) }
+        }
+
         fun loadHooks(vararg hookClassNames: Set<String>): List<Hooks> {
             return ClassGraph()
                 .enableClassInfo()
@@ -70,7 +88,8 @@ data class Hooks(
                         it to hookClass
                     }
                 } catch (e: ClassNotFoundException) {
-                    println("WARN: Failed to load hooks from $hookClassName: ${e.printStackTrace()}")
+                    println("WARN: Failed to load hooks from $hookClassName:")
+                    e.printStackTrace()
                     emptyList()
                 }
             }

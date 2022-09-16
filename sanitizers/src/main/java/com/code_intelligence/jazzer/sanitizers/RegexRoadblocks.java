@@ -22,7 +22,7 @@ import static com.code_intelligence.jazzer.sanitizers.utils.ReflectionUtils.offs
 import com.code_intelligence.jazzer.api.HookType;
 import com.code_intelligence.jazzer.api.Jazzer;
 import com.code_intelligence.jazzer.api.MethodHook;
-import com.code_intelligence.jazzer.runtime.UnsafeProvider;
+import com.code_intelligence.jazzer.utils.UnsafeProvider;
 import java.lang.invoke.MethodHandle;
 import java.util.WeakHashMap;
 import java.util.regex.Matcher;
@@ -32,7 +32,7 @@ import sun.misc.Unsafe;
 /**
  * The hooks in this class extend the reach of Jazzer's string compare instrumentation to literals
  * (both strings and characters) that are part of regular expression patterns.
- *
+ * <p>
  * Internally, the Java standard library represents a compiled regular expression as a graph of
  * instances of Pattern$Node instances, each of which represents a single unit of the full
  * expression and provides a `match` function that takes a {@link Matcher}, a {@link CharSequence}

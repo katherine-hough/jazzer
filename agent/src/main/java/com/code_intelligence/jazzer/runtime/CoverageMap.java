@@ -14,6 +14,8 @@
 
 package com.code_intelligence.jazzer.runtime;
 
+import com.code_intelligence.jazzer.utils.UnsafeProvider;
+import com.github.fmeum.rules_jni.RulesJni;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -24,6 +26,10 @@ import sun.misc.Unsafe;
  * the counters are shared directly with native code.
  */
 final public class CoverageMap {
+  static {
+    RulesJni.loadLibrary("jazzer_driver", "/com/code_intelligence/jazzer/driver");
+  }
+
   private static final String ENV_MAX_NUM_COUNTERS = "JAZZER_MAX_NUM_COUNTERS";
 
   private static final int MAX_NUM_COUNTERS = System.getenv(ENV_MAX_NUM_COUNTERS) != null
@@ -113,6 +119,10 @@ final public class CoverageMap {
       UNSAFE.putByte(countersAddress + id, (byte) 1);
     }
   }
+
+  // Returns the IDs of all blocks that have been covered in at least one run (not just the current
+  // one).
+  public static native int[] getEverCoveredIds();
 
   private static native void initialize(long countersAddress);
 
